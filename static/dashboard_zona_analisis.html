@@ -7362,6 +7362,33 @@ async function renderMonitorAnalysis() {
           <div style="font-size:12px;color:var(--t1);line-height:1.5;">${threat.strategy}</div>
         </div>
 
+        ${(() => {
+          // PRECIO RECOMENDADO del producto (lo calcula el BACKEND: mediana $/m² de directos reales,
+          // consistente vertical/horizontal). Se muestra SIEMPRE, automáticamente, por producto.
+          if (threat.pm2Recomendado == null) {
+            return `<div style="padding:10px 12px;background:var(--navy-3);border:1px solid var(--b0);border-radius:8px;margin-bottom:12px;font-size:12px;color:var(--t2);">
+              <span style="color:var(--t3);text-transform:uppercase;letter-spacing:.6px;font-size:11px;font-weight:700;">Precio recomendado</span> · Sin competencia directa comparable en la zona · el producto define el precio (segmento sin referencia de mercado).
+            </div>`;
+          }
+          const vc = threat.veredictoPrecio;
+          const vCol = vc === 'caro' ? 'var(--red)' : (vc === 'barato' ? 'var(--amber)' : 'var(--green)');
+          const vTxt = vc === 'caro' ? 'CARO vs mercado' : (vc === 'barato' ? 'BARATO vs mercado' : 'EN LÍNEA con el mercado');
+          const vIco = vc === 'caro' ? '⬆' : (vc === 'barato' ? '⬇' : '✓');
+          const pu = threat.pm2Usuario || 0;
+          const pr = threat.pm2Recomendado;
+          const delta = pr > 0 ? ((pu - pr) / pr * 100) : 0;
+          const tr = threat.ticketRecomendadoM;
+          return `<div style="padding:12px;background:var(--navy-3);border:1px solid ${vCol};border-radius:8px;margin-bottom:12px;">
+            <div style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px;">Precio recomendado · ${threat.precioNDirectos} comparables directos</div>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:8px;">
+              <div><div style="font-size:11px;color:var(--t3);">Tu $/m²</div><div style="font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:var(--t0);">$${pu.toLocaleString('en-US')}</div></div>
+              <div><div style="font-size:11px;color:var(--t3);">Recomendado $/m²</div><div style="font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:var(--bronze-light);">$${pr.toLocaleString('en-US')}</div></div>
+              <div><div style="font-size:11px;color:var(--t3);">Ticket recom.</div><div style="font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;color:var(--green);">${tr != null ? '$' + tr + 'M' : '—'}</div></div>
+            </div>
+            <div style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;background:${vCol}22;color:${vCol};border-radius:6px;font-weight:700;font-size:12px;">${vIco} ${vTxt} · ${delta.toFixed(1)}%</div>
+          </div>`;
+        })()}
+
         ${threat.competitors.length > 0 ? `
           <details style="background:var(--navy-3);border-radius:8px;border:1px solid var(--b0);">
             <summary style="padding:10px 12px;font-size:12px;font-weight:600;color:var(--bronze-light);cursor:pointer;">📋 Ver ${threat.competitors.length} competidores directos${threat.competitors.length > 12 ? ' (top 12)' : ''}</summary>
