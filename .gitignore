@@ -1,2 +1,6 @@
 docs/referencias/
 snapshots/
+.DS_Store
+~$*.pptx
+*.pptx
+*.pptm
