@@ -81,8 +81,10 @@ Polígono GeoJSON por `minutes` y `transport_type=driving`.
 | `origen` | demand_driven / supply_driven |
 | `aplicable` | Bucket dentro del rango de valor con oferta real del modo |
 | `dual_featured`, `nota_mercado` | Ancla por percepción de valor sin demanda DIM local |
-| `mkt_venta`, `mkt_renta`, `hog_propios` | ⚠️ HOY: proporciones fijas 0.83/0.17/0.65 de mkt_total (ver hallazgo H7: derivar de tenencia real) |
-| `rent_min`, `rent_max` | ⚠️ HOY: 0.4% del valor de vivienda (ver hallazgo H8: anclar a vv_renta real) |
+| `mkt_venta`, `mkt_renta`, `hog_propios` | H7 ✓: mkt_total × tenencia REAL del bucket (Alquilada/Propia de sus AGEBs; fallback zona; sin dato → None/N/D) |
+| `share_renta`, `share_propia` | H7 ✓ (nuevas): proporción de tenencia real aplicada al bucket (decimal; None sin dato) |
+| `rent_min`, `rent_max` | H8 ✓: valor × `renta_pct_zona` (tasa de renta OBSERVADA de la zona) |
+| `renta_pct_zona`, `renta_pct_fuente` | H8 ✓ (nuevas): mediana($/m²/mes vv_renta) ÷ mediana($/m² venta); fuente `observada` (≥3 obs en ambas capas) o `base_digo` (0.4% fallback documentado) |
 
 ## 5. Producto (`zone_data.productos[]`)
 Comunes (venta vertical y horizontal): `tipo` · `rec` · `m2` (+`m2_num`) · `pm2` (+`pm2_num`) ·

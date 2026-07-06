@@ -923,14 +923,21 @@ def derive_demografia(agebs: List[Dict], ft: Optional[List[Dict]] = None,
             nse_hog[key] = nse_hog.get(key, 0.0) + h
             ixh_m = _ageb_ixh_mensual(r)
             if ixh_m is not None:
-                nse_ing.setdefault(key, []).append(ixh_m)
+                # H10: guardar (ingreso, hogares) para promediar PONDERADO por hogares
+                nse_ing.setdefault(key, []).append((ixh_m, h))
+
+    def _wmean_pairs(pairs):
+        """Promedio PONDERADO por hogares de pares (valor, hogares). H10."""
+        num = sum(v * (w or 0) for v, w in pairs)
+        den = sum((w or 0) for _, w in pairs)
+        return (num / den) if den else (statistics.mean([v for v, _ in pairs]) if pairs else None)
 
     nse = {}
     total_hog = sum(nse_hog.values()) if nse_hog else 0
     # El template usa claves Cm (=C+) y Dm (=D+)
     key_map = {"C+": "Cm", "D+": "Dm"}
     for k, h in nse_hog.items():
-        ingreso = round(statistics.mean(nse_ing[k])) if nse_ing.get(k) else None
+        ingreso = round(_wmean_pairs(nse_ing[k])) if nse_ing.get(k) else None
         tkey = key_map.get(k, k)
         nse[tkey] = {"hog": round(h), "pct": round(h / total_hog * 100, 1) if total_hog else None,
                      "ingreso": ingreso}
@@ -976,7 +983,7 @@ def derive_demografia(agebs: List[Dict], ft: Optional[List[Dict]] = None,
     # ingreso mostrado = ingreso REAL de los AGEBs de ESE NSE (campo IXH de la base). Si ese NSE
     # no tiene AGEBs en la zona (p. ej. percepción A sin AGEB A), se cae al promedio ponderado.
     if nse_dom_key and nse_ing.get(nse_dom_key):
-        ingreso_hogar = statistics.mean(nse_ing[nse_dom_key])
+        ingreso_hogar = _wmean_pairs(nse_ing[nse_dom_key])   # H10: ponderado por hogares
     # else: se conserva el promedio ponderado ya calculado arriba (último recurso, dato de base)
 
     # Tenencia (C81-84) en %
@@ -1395,7 +1402,8 @@ def _nse_separacion_espacial(agebs_geo: List[Dict]) -> Dict[str, Any]:
 
 def derive_segments(agebs: List[Dict], ft: List[Dict], tipo_vivienda: str = "vertical",
                     agebs_geo: Optional[List[Dict]] = None,
-                    pin_lng: Optional[float] = None, pin_lat: Optional[float] = None) -> List[Dict[str, Any]]:
+                    pin_lng: Optional[float] = None, pin_lat: Optional[float] = None,
+                    ft_renta: Optional[List[Dict]] = None) -> List[Dict[str, Any]]:
     """
     Metodología DPO de demanda (universal para todo México):
 
@@ -1421,6 +1429,9 @@ def derive_segments(agebs: List[Dict], ft: List[Dict], tipo_vivienda: str = "ver
     # (b) fijar el TECHO DE INDUCCIÓN (piso del NSE superior). Todos los buckets con demanda
     # u oferta se muestran como productos (recomendados o no).
     agebs_dom, nse_dom, nse_superior, share_dom = _nse_dominante_agebs(agebs, agebs_geo, pin_lng, pin_lat)
+    # H9 · NSE realmente PRESENTES en la zona (para exigir presencia al recalcular el superior)
+    nse_presentes = {ageb_nse(r) for r in agebs}
+    nse_presentes.discard(None)
 
     # ── Buckets de precio canónicos (M MXN) ──
     BUCKETS = [
@@ -1438,11 +1449,31 @@ def derive_segments(agebs: List[Dict], ft: List[Dict], tipo_vivienda: str = "ver
     # INEGI ya estima la capacidad de compra real por hogar en "Rangos demanda vivienda"
     # (captura patrimonio, apalancamiento, etc., no solo múltiplo de ingreso corriente).
     # Tomamos esa demanda por rango y la mapeamos a nuestros buckets canónicos.
-    demanda_bucket = {i: {"nuevas_fam": 0.0, "hogares": 0.0, "mercado_venta": 0.0, "ixh_w": 0.0, "ixh_hog": 0.0} for i in range(len(BUCKETS))}
+    demanda_bucket = {i: {"nuevas_fam": 0.0, "hogares": 0.0, "mercado_venta": 0.0, "ixh_w": 0.0, "ixh_hog": 0.0,
+                          "renta_w": 0.0, "propia_w": 0.0, "ten_hog": 0.0} for i in range(len(BUCKETS))}
+    # H7 · TENENCIA REAL: la propensión venta/renta de cada bucket sale de la tenencia REAL
+    # (Propia/Alquilada/Prestada/Otra) de sus AGEBs — dato de la base, no proporción inventada.
+    # Fallback: tenencia agregada de la ZONA; sin dato en toda la zona → None (N/D legítimo).
+    _zona_ten = {"alq": 0.0, "prop": 0.0, "tot": 0.0}
+
+    def _tenencia_shares(r):
+        """(share_renta, share_propia) del AGEB por tenencia real; (None, None) sin dato."""
+        pr = _num(r.get("Propia")); al = _num(r.get("Alquilada"))
+        pe = _num(r.get("Prestada")); ot = _num(r.get("Otra situación"))
+        tot = sum(v for v in (pr, al, pe, ot) if v is not None)
+        if not tot:
+            return None, None
+        return ((al or 0) / tot, (pr or 0) / tot)
+
     for r in agebs:
         rango = r.get("Rangos demanda vivienda")
         dem = _num(r.get("Demanda anual vivienda"))
         hog = _num(r.get("Hogares totales 2026")) or 0
+        _sr, _sp = _tenencia_shares(r)
+        if _sr is not None and hog:
+            _zona_ten["alq"] += hog * _sr
+            _zona_ten["prop"] += hog * _sp
+            _zona_ten["tot"] += hog
         # "Mercado en venta" = pool de compradores potenciales activos en venta del AGEB (demanda
         # total). Regula la velocidad en segmentos sobreofertados. Distinto de "Demanda anual
         # vivienda" (flujo de nuevas familias/año).
@@ -1467,6 +1498,11 @@ def derive_segments(agebs: List[Dict], ft: List[Dict], tipo_vivienda: str = "ver
         demanda_bucket[bi]["nuevas_fam"] += dem
         demanda_bucket[bi]["hogares"] += hog
         demanda_bucket[bi]["mercado_venta"] += mkt_venta
+        # H7: tenencia real acumulada por bucket (share del AGEB × hogares del AGEB en el bucket)
+        if _sr is not None and hog:
+            demanda_bucket[bi]["renta_w"] += hog * _sr
+            demanda_bucket[bi]["propia_w"] += hog * _sp
+            demanda_bucket[bi]["ten_hog"] += hog
         # Ingreso real (IXH mensual) ponderado por hogares → NSE del bucket por INGRESO real,
         # no por el precio de la vivienda (evita etiquetar NSE C un bucket comprado por NSE D).
         ixh_m = _ageb_ixh_mensual(r)
@@ -1534,11 +1570,13 @@ def derive_segments(agebs: List[Dict], ft: List[Dict], tipo_vivienda: str = "ver
     if nse_percepcion and rank_pv.get(nse_percepcion, 99) < rank_pv.get(nse_dom, 99):
         salto_percepcion = rank_pv.get(nse_dom, 0) - rank_pv.get(nse_percepcion, 0)
         nse_dom = nse_percepcion
-        # Recalcular el NSE superior respecto a la nueva percepción dominante
+        # Recalcular el NSE superior respecto a la nueva percepción dominante.
+        # H9: la regla exige que el NSE superior esté PRESENTE en la zona (masa real de
+        # hogares); antes se tomaba de la escala completa aunque no existiera en la zona.
         nse_superior = None
         for n in NSE_ORDEN_PV:
-            if rank_pv.get(n, 99) < rank_pv.get(nse_dom, 0):
-                nse_superior = n  # el más cercano por encima
+            if n in nse_presentes and rank_pv.get(n, 99) < rank_pv.get(nse_dom, 0):
+                nse_superior = n  # el más cercano por encima PRESENTE
 
     # ── 3 · Nivel de valor percibido = bucket con mayor demanda por capacidad de compra ──
     nivel_percibido = max(demanda_bucket, key=lambda i: demanda_bucket[i]["nuevas_fam"]) \
@@ -1597,6 +1635,36 @@ def derive_segments(agebs: List[Dict], ft: List[Dict], tipo_vivienda: str = "ver
         if ixh_mensual > 200000:
             return "A"
         return "E"
+
+    # ── H8 · TASA DE RENTA OBSERVADA DE LA ZONA ──
+    # renta_pct_zona = mediana($/m²/mes de la oferta de renta real vv_renta) ÷ mediana($/m² de
+    # la oferta de venta real). Dato observado (oferta como laboratorio). Con menos de 3
+    # observaciones en cualquiera de las dos capas → fallback a la regla base DIGO (0.4%/mes),
+    # que queda DOCUMENTADA como fallback, no como regla principal.
+    RENTA_PCT_BASE = 0.004
+    _pm2_renta_vals = []
+    for _t in (ft_renta or []):
+        _a = _t.get("attributes", {})
+        # $/m²/MES de renta: rango plausible 20-5,000 (NO usar _pm2, cuyo piso >1,000 es de
+        # VENTA y descartaría rentas reales de $100-600/m²/mes).
+        _rm = _num(_a.get("F___M2"))
+        if _rm is None or not (20 <= _rm <= 5000):
+            _ru = _num(_a.get("F____UNIDAD")); _ap = _num(_a.get("ÁREA_PRIVATIVA"))
+            _rm = (_ru / _ap) if (_ru and _ru > 1000 and _ap and M2_MIN <= _ap <= M2_MAX) else None
+        if _rm and 20 <= _rm <= 5000:
+            _pm2_renta_vals.append(_rm)
+    _pm2_venta_vals = []
+    for _t in ft:
+        _a = _t.get("attributes", {})
+        _pv = _pm2(_a.get("F___M2"))
+        if _pv and _pv >= PM2_VERTICAL_MIN:
+            _pm2_venta_vals.append(_pv)
+    if len(_pm2_renta_vals) >= 3 and len(_pm2_venta_vals) >= 3:
+        renta_pct_zona = statistics.median(_pm2_renta_vals) / statistics.median(_pm2_venta_vals)
+        renta_pct_fuente = "observada"
+    else:
+        renta_pct_zona = RENTA_PCT_BASE
+        renta_pct_fuente = "base_digo"
 
     segments = []
     total_nf = sum(demanda_bucket[i]["nuevas_fam"] for i in demanda_bucket)
@@ -1716,12 +1784,24 @@ def derive_segments(agebs: List[Dict], ft: List[Dict], tipo_vivienda: str = "ver
             status = "oceano_rojo"
 
         ing_lo, ing_hi = nse_ing_band.get(nse_cls, (0, 0))
-        # Renta mensual ≈ 0.4% del valor de vivienda. Para el bucket inferior (lo=0),
-        # usar un piso representativo para no devolver renta 0/N/D.
+        # H8 · Renta mensual = valor × TASA DE RENTA OBSERVADA de la zona (vv_renta real);
+        # sin observaciones suficientes → 0.4% (regla base DIGO como fallback documentado).
+        # Para el bucket inferior (lo=0), piso representativo para no devolver renta 0/N/D.
         hi_eff = (hi if hi < 999 else lo * 1.3)
         lo_eff = lo if lo > 0 else hi_eff * 0.5   # piso del bucket inferior
-        rent_min = round(lo_eff * 1e6 * 0.004)
-        rent_max = round(hi_eff * 1e6 * 0.004)
+        rent_min = round(lo_eff * 1e6 * renta_pct_zona)
+        rent_max = round(hi_eff * 1e6 * renta_pct_zona)
+        # H7 · Propensión venta/renta/propia del bucket por TENENCIA REAL (AGEBs del bucket;
+        # fallback: tenencia de la zona; sin dato en toda la zona → None = N/D legítimo).
+        if db.get("ten_hog"):
+            share_renta = db["renta_w"] / db["ten_hog"]
+            share_propia = db["propia_w"] / db["ten_hog"]
+        elif _zona_ten["tot"]:
+            share_renta = _zona_ten["alq"] / _zona_ten["tot"]
+            share_propia = _zona_ten["prop"] / _zona_ten["tot"]
+        else:
+            share_renta = None
+            share_propia = None
         es_dual_featured = (mercado_dual and i == dual_idx)
         # APLICABILIDAD: el bucket está dentro del rango de valor donde la zona tiene oferta
         # vertical real. Fuera de ese rango se muestra pero se marca no-aplicable.
@@ -1737,11 +1817,16 @@ def derive_segments(agebs: List[Dict], ft: List[Dict], tipo_vivienda: str = "ver
             # El front la LEE de aquí; nunca la recalcula (antes tenía una tabla hardcodeada distinta).
             "tca": NSE_TCA.get(nse_cls, 0),
             "demanda_total": round(db["mercado_venta"]),   # "Mercado en venta": pool compradores activos
-            "mkt_venta": round(mkt_total * 0.83) if mkt_total else 0,
-            "mkt_renta": round(mkt_total * 0.17) if mkt_total else 0,
+            # H7: venta/renta/propia derivadas de TENENCIA REAL (antes 0.83/0.17/0.65 fijos)
+            "mkt_venta": (round(mkt_total * (1 - share_renta)) if (mkt_total and share_renta is not None) else (0 if not mkt_total else None)),
+            "mkt_renta": (round(mkt_total * share_renta) if (mkt_total and share_renta is not None) else (0 if not mkt_total else None)),
+            "share_renta": round(share_renta, 4) if share_renta is not None else None,
+            "share_propia": round(share_propia, 4) if share_propia is not None else None,
             "rent_min": rent_min, "rent_max": rent_max,
+            "renta_pct_zona": round(renta_pct_zona, 5),
+            "renta_pct_fuente": renta_pct_fuente,
             "ing_min": ing_lo, "ing_max": ing_hi,
-            "hog_propios": round(mkt_total * 0.65) if mkt_total else 0,
+            "hog_propios": (round(mkt_total * share_propia) if (mkt_total and share_propia is not None) else (0 if not mkt_total else None)),
             "evidencia_vendidas": vend, "evidencia_disp": disp,
             "status": status, "origen": origen, "segments_in_bucket": 1,
             "aplicable": aplicable,
@@ -1935,9 +2020,12 @@ PCT_POOL_ACTIVO = 0.05   # fracción del pool de mercado en venta del segmento q
 # Toda la lógica del Monitor vive aquí (antes estaba duplicada en el front: findCompetitorsForMixItem,
 # findMatchingSegment, computeCompetitiveThreat). El front solo arma el mix interactivo y muestra.
 # Mismas tolerancias que el precio recomendado (regla del tablero estático findCompetitorsForMixItem).
-_MON_TOL_TICKET = 0.15   # ±15% en ticket por unidad
-_MON_TOL_AREA   = 0.30   # ±30% en superficie
-_MON_TOL_REC    = 1      # ±1 recámara
+# H11 · CONSOLIDACIÓN: los _MON_TOL_* ahora REFERENCIAN los _PRECIO_TOL_* (misma regla de
+# comparable directo de precio). Ya no pueden divergir; se conservan los nombres porque el
+# Monitor los referencia (catálogo: no se renombra lo que otros consumen).
+_MON_TOL_TICKET = _PRECIO_TOL_TICKET   # ±15% en ticket por unidad
+_MON_TOL_AREA   = _PRECIO_TOL_AREA     # ±30% en superficie
+_MON_TOL_REC    = _PRECIO_TOL_REC      # ±1 recámara
 
 
 def _competidores_mix_item(item: Dict[str, Any], typologies: Dict[str, List[Dict]]) -> List[Dict[str, Any]]:
@@ -2985,7 +3073,7 @@ def derive_productos_renta(ft_renta: List[Dict], segments: List[Dict]) -> List[D
             "aplicable": s.get("aplicable", True),
             "featured": (best is not None and s is best),
             "seg_renta": f"{s['NSE']} · {s['bucket']}",
-            "mkt_segmento": round(s.get("mkt_renta", 0)),
+            "mkt_segmento": round(s.get("mkt_renta") or 0),
             "nuevas_fam_year": nf,
             "mercado": f"NSE {s['NSE']} · renta {s['bucket']}",
         })
@@ -3226,22 +3314,11 @@ def _derive_comercio_OLD(agebs):
 from typing import Optional, List, Dict, Any
 
 
-def _num(v):
-    if isinstance(v, (int, float)) and not isinstance(v, bool):
-        if v == -1:
-            return None
-        return float(v)
-    return None
-
-
-def _price(v):
-    n = _num(v)
-    return n if (n is not None and n > 100000) else None
-
-
-def _pm2v(v):
-    n = _num(v)
-    return n if (n is not None and n > 1000) else None
+# H11 · CONSOLIDACIÓN: aquí vivían copias duplicadas de _num y _price (idénticas a las del
+# inicio del módulo, líneas ~22-42) — eliminadas para que exista UNA sola fuente por helper.
+# _pm2v era una tercera copia de _pm2 con otro nombre; se conserva el nombre como alias
+# porque varias funciones lo referencian (catálogo: no se renombra lo que otros consumen).
+_pm2v = _pm2
 
 
 def _build_proyectos(resumen: List[Dict]) -> List[Dict[str, Any]]:
@@ -3623,8 +3700,8 @@ def assemble_zone_payload(req, profile, isocronas, resumen, ft, pagos, resumen_r
     # DIM_DATA (para tplDemanda)
     totals = {
         "mkt_total": sum(s["mkt_total"] for s in segments),
-        "mkt_venta": sum(s["mkt_venta"] for s in segments),
-        "mkt_renta": sum(s["mkt_renta"] for s in segments),
+        "mkt_venta": sum((s.get("mkt_venta") or 0) for s in segments),
+        "mkt_renta": sum((s.get("mkt_renta") or 0) for s in segments),
         "nuevas_fam_anual": round(sum(s["nuevas_fam"] for s in segments), 1),
     }
     dim_data = {
@@ -3923,7 +4000,7 @@ def derive_demanda_segmentos(segments, productos=None):
     prod_by_bucket = {}
     for p in productos:
         prod_by_bucket[p.get("seg_dim", "")] = p
-    total_mkt = max(sum(x["mkt_venta"] for x in segments), 1)
+    total_mkt = max(sum((x.get("mkt_venta") or 0) for x in segments), 1)
     out = []
     for s in segments:
         if s.get("status") in ("bajo_crecimiento",):
@@ -4444,7 +4521,7 @@ async def analyze(req: ZonaRequest):
     # ── Derivación DIGO/DPO ──
     demografia = derive_demografia(agebs, ft, agebs_geo, req.lng, req.lat)         # population, households, tca, nse, tenencia...
     nse_dim = derive_nse_dim(agebs)                   # nse_dim[] para DIM_DATA
-    segments = derive_segments(agebs, ft, "vertical", agebs_geo, req.lng, req.lat)             # 12 buckets de demanda
+    segments = derive_segments(agebs, ft, "vertical", agebs_geo, req.lng, req.lat, ft_renta)   # buckets de demanda
     productos = derive_productos_venta(ft, segments, req.unidades_proyecto, demografia.get("personas_hogar"), _build_di_detail(agebs))  # productos venta
     productos_renta = derive_productos_renta(ft_renta, segments)  # productos renta
     comercio = derive_comercio(agebs, _nse_dominante_agebs(agebs, agebs_geo, req.lng, req.lat)[1], ft)  # potencial comercio/retail (NSE dinámico)
@@ -4636,7 +4713,7 @@ async def zona_procesar(req: ZonaRequest):
     nse_dim = _safe(lambda: derive_nse_dim(agebs), "nse_dim", [])
     # DEMANDA según modo: horizontal pondera por proporción de casa; vertical usa la genérica.
     tipo_viv = "horizontal" if modo == "vivienda_horizontal" else "vertical"
-    segments = _safe(lambda: derive_segments(agebs, ft, tipo_viv, agebs_geo, req.lng, req.lat), "segments", [])
+    segments = _safe(lambda: derive_segments(agebs, ft, tipo_viv, agebs_geo, req.lng, req.lat, ft_renta), "segments", [])
     # PRODUCTO según modo. Vertical: depa (área privativa). Horizontal: casa (terreno+construcción).
     # La renta solo existe en vertical.
     if modo == "vivienda_horizontal":

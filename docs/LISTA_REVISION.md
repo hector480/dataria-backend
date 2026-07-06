@@ -864,3 +864,39 @@ HALLAZGOS QUE REQUIEREN DECISIÓN DE HÉCTOR (no se tocaron · regla 5):
       hogares). Impacto menor; decidir al revisar Demografía.
   H11. _num/_price duplicadas (líneas ~22 y ~3221, implementaciones equivalentes) y
       _MON_TOL_*/_PRECIO_TOL_* duplicadas (ya listado) → consolidación pendiente menor.
+
+## H7-H11. Datos reales en lugar de proporciones inventadas + consolidaciones — [x] HECHO (6 jul 2026, aprobado por Héctor)
+H7 · TENENCIA REAL: mkt_venta/mkt_renta/hog_propios ya NO usan 0.83/0.17/0.65 fijos. Cada
+  bucket usa la tenencia REAL (Propia/Alquilada/Prestada/Otra) de SUS AGEBs, ponderada por
+  hogares; fallback = tenencia agregada de la zona; sin dato en toda la zona → None (N/D
+  legítimo, sumas del backend protegidas con `or 0`). Nuevas variables de catálogo:
+  share_renta, share_propia (decimales por bucket). En horizontal la masa va ponderada por
+  prop_casa (consistente con la demanda del modo).
+  VALIDADO ZMM: share_renta real por bucket 0.144-0.184 (vs 0.17 fijo); totals renta
+  15,794→16,636. Featured y dominante intactos.
+H8 · TASA DE RENTA OBSERVADA: rent_min/rent_max = valor × renta_pct_zona, donde
+  renta_pct_zona = mediana($/m²/mes de vv_renta) ÷ mediana($/m² de venta), con ≥3
+  observaciones en ambas capas; si no alcanza → 0.4% (regla base DIGO como fallback
+  DOCUMENTADO). Nuevas variables: renta_pct_zona, renta_pct_fuente (observada|base_digo).
+  derive_segments recibe ft_renta (nuevo parámetro; ambos endpoints lo pasan).
+  BUG CORREGIDO EN LA PROPIA H8 (causa raíz): la 1ª versión leía la renta $/m²/mes con
+  _pm2 (piso >$1,000 pensado para VENTA) y descartaba TODAS las rentas reales ($100-600).
+  Se lee con _num y banda plausible 20-5,000.
+  VALIDADO ZMM: renta_pct_zona=0.00353 OBSERVADA → rentas recomendadas ~12% menores que
+  con el 0.4% de dedo (p.ej. 1 Rec: $4,500→$3,975/mes). El mercado real de renta manda.
+H9 · nse_superior tras elevación por percepción exige PRESENCIA del NSE en la zona
+  (nse_presentes de los AGEBs), como dice la regla confirmada.
+H10 · ingreso por NSE (y del NSE dominante) ponderado por HOGARES del AGEB, no promedio
+  simple. ZMM: sin cambio visible (40,044), esperado en zonas homogéneas.
+H11 · Consolidaciones: eliminadas copias duplicadas de _num/_price (~línea 3220); _pm2v
+  queda como ALIAS de _pm2 (el nombre se conserva: otros lo consumen). _MON_TOL_* ahora
+  REFERENCIAN _PRECIO_TOL_* (no pueden divergir). PENDIENTE OBSERVADO: pm2_renta_zona en
+  derive_productos_renta se calcula y NO se usa (variable inerte); decidir su papel al
+  revisar la sección Renta. ocupacion_target="92%" hardcodeado en renta: revisar igual.
+VALIDACIÓN: unit tests dirigidos (tenencia 30/10%, yield 0.005 observada, fallbacks, None
+  seguro) · py_compile · node --check · verify_all 8/8 + render 10/10 (zona en vivo) ·
+  ZMM antes/después completo (arriba) · verify_interactive: EN CURSO — el API PRSP hoy
+  cuelga los exports DI pesados (Contry/VP/GDL); el check corre en background y se anota
+  el resultado en cuanto el API responda. GDL (Jalisco, lógica universal): mismo estado.
+SNAPSHOT para notas: snapshots/tablero_zmm_centro_2026-07-06.html (payload real embebido,
+  gitignored). Front SIN cambios de código: mismos nombres de variables (catálogo).
