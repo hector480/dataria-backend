@@ -133,9 +133,10 @@ def filter_vvv_by_polygon(vvv: Dict, ring: List[List[float]]) -> Dict:
         elif nombre and nombre in proyectos_validos:
             ft_in.append(t)
 
-    # 3. pagos: solo de proyectos válidos
+    # 3. pagos: solo de proyectos válidos. Integridad espacial: sin proyectos válidos dentro
+    # del polígono NO se dejan pasar pagos huérfanos (antes se devolvían todos sin filtrar).
     pagos_in = [p for p in pagos if p.get("attributes", {}).get("PROYECTO") in proyectos_validos] \
-        if proyectos_validos else pagos
+        if proyectos_validos else []
 
     out = dict(vvv)
     out["datasets"] = {"resumen": resumen_in, "ft": ft_in, "pagos": pagos_in}
@@ -1148,11 +1149,9 @@ def derive_nse_dim(agebs: List[Dict]) -> List[Dict[str, Any]]:
 
 
 # ──────────────────────── Segmentos de demanda (Checkpoint A) ────────────────────────
-PRICE_BUCKETS = [
-    (0, 2.5, "< $2.5M"), (2.5, 3.5, "$2.5M-$3.5M"), (3.5, 5.0, "$3.5M-$5.0M"),
-    (5.0, 7.0, "$5.0M-$7.0M"), (7.0, 10.0, "$7.0M-$10.0M"),
-    (10.0, 15.0, "$10.0M-$15.0M"), (15.0, 99.0, "> $15.0M"),
-]
+# NOTA: la tabla canónica de buckets de precio vive DENTRO de derive_segments (BUCKETS).
+# Aquí existía una segunda tabla PRICE_BUCKETS muerta (nunca usada) que se eliminó para
+# evitar ediciones en la tabla equivocada (regla: una sola fuente por constante).
 
 
 def _nse_dominante_agebs(agebs: List[Dict], agebs_geo: Optional[List[Dict]] = None,
@@ -1191,7 +1190,8 @@ def _nse_dominante_agebs(agebs: List[Dict], agebs_geo: Optional[List[Dict]] = No
         nse = ageb_nse(r)
         if not nse:
             continue
-        hog = _num(r.get("Hogares totales 2026")) or _num(r.get("Total de hogares")) or 1
+        hog = (_num(r.get("Hogares totales 2026")) or _num(r.get("Hogares totales 2020"))
+               or _num(r.get("Total de hogares")) or 1)
         masa[nse] = masa.get(nse, 0) + hog
     if not masa:
         return agebs, None, None, 1.0
@@ -1253,7 +1253,8 @@ def _nse_barrier_info(agebs: List[Dict], agebs_geo: Optional[List[Dict]] = None)
         nse = ageb_nse(r)
         if not nse:
             continue
-        hog = _num(r.get("Hogares totales 2026")) or _num(r.get("Total de hogares")) or 1
+        hog = (_num(r.get("Hogares totales 2026")) or _num(r.get("Hogares totales 2020"))
+               or _num(r.get("Total de hogares")) or 1)
         masa[nse] = masa.get(nse, 0) + hog
     total = sum(masa.values()) or 1
     composicion = {k: round(v / total * 100, 1) for k, v in sorted(masa.items(), key=lambda kv: -kv[1])}
@@ -1646,10 +1647,13 @@ def derive_segments(agebs: List[Dict], ft: List[Dict], tipo_vivienda: str = "ver
             dual_idx = pv_idx
     else:
         # No hay oferta vertical en absoluto: mercado incipiente demand-driven puro.
-        # El ancla es el bucket de mayor demanda dentro del techo de inducción.
+        # El ancla es el bucket de mayor demanda dentro del TECHO DE INDUCCIÓN (regla
+        # confirmada: se puede inducir demanda hacia arriba, pero por debajo del piso del
+        # NSE superior presente). El comentario ya lo enunciaba; ahora el filtro lo aplica.
         cand = {i: demanda_bucket[i]["nuevas_fam"] for i in range(len(BUCKETS))
                 if demanda_bucket[i]["nuevas_fam"] > 0
-                and rank.get(_nse_de_bucket(i), 99) <= rank_dom}
+                and rank.get(_nse_de_bucket(i), 99) <= rank_dom
+                and i <= bucket_max_permitido}
         if not cand:
             cand = {i: demanda_bucket[i]["nuevas_fam"] for i in range(len(BUCKETS))
                     if demanda_bucket[i]["nuevas_fam"] > 0}
@@ -2430,6 +2434,10 @@ def derive_productos_horizontal(ft: List[Dict], segments: List[Dict], unidades_p
             "pm2_recomendado": precio_rec.get("pm2_recomendado"),
             "ticket_recomendado_M": precio_rec.get("ticket_recomendado_M"),
             "precio_tol_veredicto": PRECIO_TOL_VEREDICTO,
+            # Consistencia con vertical (catálogo universal): mismos nombres en ambos modos.
+            "tca": nse_tca,
+            "competidores": n_comp,
+            "mercado": f"NSE {s['NSE']} · {s['bucket']} · {n_comp} competidores directos",
             "status": s["status"],
             "recomendado": ((s.get("aplicable", True)
                             and (s["status"] in ("sweet_spot", "desatendido", "oportunidad", "atendido")))
@@ -2625,14 +2633,14 @@ def derive_productos_venta(ft: List[Dict], segments: List[Dict], unidades_proyec
                            personas_hogar: Optional[float] = None,
                            hogares_comp: Optional[Dict] = None) -> List[Dict[str, Any]]:
     """
-    Un producto por bucket de demanda. Replica la metodología DPO de los tableros estáticos:
-      • TAMAÑO (m²) = ticket / precio_m²  (siempre se deriva, nunca N/D si hay precio).
-      • ABSORCIÓN demand-driven = nuevas_fam/mes, modulada por:
-          - TCA del NSE (crecimiento de nuevas familias),
-          - tamaño del mercado potencial (nuevas familias del segmento),
-          - competencia directa en el corredor (nº de tipologías que compiten en el bucket),
-          - elasticidad de ticket: tickets altos (>$16M) caen fuerte la absorción.
-      • RECÁMARAS derivadas del tamaño.
+    Un producto por bucket de demanda. Metodología DPO vigente (ver docs/METODOLOGIA_DIGO.md):
+      • RECÁMARAS ancladas al TICKET (programa monotónico por valor).
+      • TAMAÑO anclado al PROGRAMA del ticket (banda habitable); el m² observado real de la
+        oferta (laboratorio) manda si existe. pm² = ticket / m² (derivado, no al revés).
+      • ABSORCIÓN flujo-contra-flujo: (Demanda anual del bucket + Mercado en venta × 5%) / 12
+        menos Σ Abs_Demanda de comparables directos con inventario disponible. Pronóstico
+        12/18/24 con curva de maduración. La mediana de directos es dato de validación.
+      • MULTI-PROGRAMA: variantes de recámaras con demanda real en el bucket.
     """
     color_by_status = {
         "sweet_spot": "green", "desatendido": "blue", "oportunidad": "purple",

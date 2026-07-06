@@ -812,3 +812,55 @@ caro +15.0%, barato -15.0%. verify_all 8/8+10/10, interactive 16, 9/9 secciones 
 - VALIDADO desde la estructura del repo: verify_all 8/8 + render 10/10; verify_interactive
   16/16; ambos contra el código final (app.py + static/dashboard) de esta etapa.
 - Primera sesión en Cowork: usar PROMPT_ARRANQUE.txt del paquete de traspaso.
+
+## ARRQ-COWORK. Sesión 1 en Cowork · Metodología + auditoría backend — [x] HECHO (6 jul 2026)
+CONTEXTO: Héctor dictó la metodología DIGO/DPO completa (fuente de verdad) y entregó el PPTX
+Distrito Tec (247 láminas, caso de estudio de PROCEDIMIENTO). Se auditó el backend contra la
+metodología con foco en Zona de Análisis, Demanda y Producto (vertical y horizontal).
+DOCUMENTACIÓN NUEVA:
+  • docs/METODOLOGIA_DIGO.md — metodología dictada + secuencia del caso Distrito Tec +
+    tabla de GAPS estructurales (G1-G10: isócrona por uso, población flotante, extranjeros,
+    densidad AGEB, patrón de gasto como barrera, zonas en transición, perfiles ICSC/ULI,
+    pronóstico gaussiano/Huff, metaproducto, usos nuevos).
+  • docs/CATALOGO_VARIABLES.md — catálogo universal de variables (regla: solo crece; una
+    fuente por constante). Incluye campos de la base tal cual llegan (XLSX DI, KMZ, VVV).
+  • docs/referencias/ con el PPTX (agregado a .gitignore: 260 MB > límite GitHub 100 MB).
+CORRECCIONES (causa raíz → fix, todas validadas con la batería completa):
+  1. filter_vvv_by_polygon/pagos: sin proyectos válidos dentro del polígono devolvía TODOS
+     los pagos sin filtrar (integridad espacial rota en zonas sin resumen). → ahora [].
+  2. derive_productos_horizontal no exponía tca/competidores/mercado que vertical SÍ expone
+     y el front lee (p.tca ×7 en el HTML) → violación de consistencia entre secciones
+     (regla 7). → agregados con los mismos nombres del catálogo.
+  3. Docstring de derive_productos_venta describía la regla VIEJA (m²=ticket/pm², elasticidad,
+     penalizaciones) eliminada hace sesiones → riesgo de reintroducir la regla equivocada al
+     leerla. → reescrito con la regla vigente (programa por ticket, flujo-contra-flujo).
+  4. PRICE_BUCKETS (módulo): tabla de buckets MUERTA (0 usos; la canónica vive en
+     derive_segments.BUCKETS) → riesgo de editar la tabla equivocada. → eliminada, comentario
+     apunta a la canónica.
+  5. TECHO DE INDUCCIÓN INERTE (hallazgo mayor): bucket_max_permitido se calculaba (regla
+     confirmada: inducción hacia arriba con techo = piso del NSE superior presente) pero NO
+     se aplicaba en ningún punto. En mercados incipientes (sin oferta vertical) el ancla
+     (cand) decía en el comentario "dentro del techo de inducción" y el filtro no lo aplicaba.
+     → cand ahora exige i <= bucket_max_permitido. Solo afecta zonas SIN oferta del modo
+     (pv_idx=None); las zonas ancla usan la ruta de percepción de valor (sin cambio).
+  6. _nse_dominante_agebs/_nse_barrier_info: fallback de hogares inconsistente con el resto
+     del código ("Total de hogares" sin "Hogares totales 2020") → cadena unificada
+     2026 → 2020 → Total de hogares → 1.
+VALIDACIÓN: py_compile OK · node --check OK · verify_all 8/8 + render 10/10 + formato OK ·
+verify_interactive 16/16 OK (catálogo venta 8 / renta 7; STDERR = artefactos documentados
+del harness) · regeneración en vivo ZMM Centro + Valle Poniente + Escobedo horizontal
+(anclas: dominante B / A; Escobedo valida el techo de inducción activado) — resultado
+anotado abajo al completar la corrida.
+HALLAZGOS QUE REQUIEREN DECISIÓN DE HÉCTOR (no se tocaron · regla 5):
+  H7. segments.mkt_venta/mkt_renta/hog_propios usan proporciones FIJAS 0.83/0.17/0.65 de
+      mkt_total (inventadas) cuando la base trae tenencia REAL por AGEB (Propia/Alquilada).
+      Alimentan Renta y mix del front. Propuesta: derivarlas de la tenencia real de la zona.
+  H8. rent_min/rent_max = 0.4% del valor de vivienda (regla de dedo) cuando existe capa
+      vv_renta con rentas REALES. Propuesta: anclar a rentas observadas al revisar Renta.
+  H9. nse_superior tras elevación por percepción de valor se recalcula sin exigir presencia
+      en la zona (regla dice "presente"). Hoy INERTE (solo afecta techo en zonas con oferta,
+      donde el techo no se usa). Decidir al revisar Demanda.
+  H10. ingreso_hogar del NSE dominante usa promedio simple de AGEBs (no ponderado por
+      hogares). Impacto menor; decidir al revisar Demografía.
+  H11. _num/_price duplicadas (líneas ~22 y ~3221, implementaciones equivalentes) y
+      _MON_TOL_*/_PRECIO_TOL_* duplicadas (ya listado) → consolidación pendiente menor.
