@@ -900,3 +900,15 @@ VALIDACIÓN: unit tests dirigidos (tenencia 30/10%, yield 0.005 observada, fallb
   el resultado en cuanto el API responda. GDL (Jalisco, lógica universal): mismo estado.
 SNAPSHOT para notas: snapshots/tablero_zmm_centro_2026-07-06.html (payload real embebido,
   gitignored). Front SIN cambios de código: mismos nombres de variables (catálogo).
+
+## PLAN-V2. Listado maestro de Héctor por sección (vivienda vertical primero) — [REGISTRADO]
+Ver docs/PLAN_V2_SECCIONES.md: backlog completo con IDs (ZA-1..8, RES-1..5, MAPA-1,
+INV-1..8, DEM-1), estándares aplicables, decisiones respondidas (RES-3: disponible manda
+para precio, total para velocidad; MAPA-1: un solo mapa maestro con capas), preguntas
+abiertas P1-P5 (flotante/extranjeros, Predik OD, series de tiempo VVV, correo para
+cuentas, geocoder) y fases F-A..F-E con checkpoints.
+HALLAZGOS API (sondeo 6 jul): /api/predik solo expone isochrone (health "via isochrone";
+rutas OD → 404) → P2. /api/descargas: el export DI acepta filtros `where` arbitrarios y
+mode=influence (útil para explorador nacional y capas). Dump de campos VVV/DI: pendiente
+por saturación del API PRSP (loop de reintentos corriendo); con él se resuelven RES-4
+(freshness Guadalupe feb vs jun), INV-5 (desarrollador), INV-6/7 (campos de ficha) y P3.
