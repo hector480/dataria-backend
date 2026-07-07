@@ -997,3 +997,14 @@ absorción mes/trimestre/histórica y % plusvalía por periodo → serie tempora
 VALIDADO: py_compile · node --check · unitarias backend (estatus/estrella/medianas duales/
 top3/por_segmento/endpoint con filtros) · harness front (payload nuevo, payload VIEJO
 retrocompatible, INV-4 presente) · verify_all 8/8 + render 10/10 (en vivo).
+
+## DEM-1. Diseño del modelo de segmentos de demanda — [PROPUESTA · esperando checkpoint]
+Ver docs/DISENO_DEM1.md. Núcleo: desglosar cada bucket en PERFILES (cohorte de etapa de
+vida × NSE × ingreso) con CONSERVACIÓN de la demanda por bucket ya validada; programa por
+cohorte (recámara compartida + cajones con normativa cuando exista); capacidad de pago por
+mensualidad (reto al múltiplo fijo 4.5 → banda 3.5-4.5); GMM solo con masa suficiente
+(BIC, ≥30 AGEBs) para detectar submercados de ingreso; natural vs captable separados
+(captable espera P1/P2, no se inventa); resta oferta−demanda POR PERFIL. Corrige el
+defecto "más m² ⇒ más $/m²" (monotonía verificable: a mismo ticket, m²↑ ⇒ $/m²↓).
+Decisiones abiertas: U1 umbral de masa (5% / 300 hog) · U2 cajones default por cohorte×NSE
+· U3 banda de capacidad por mensualidad. Validación comprometida en anclas + Jalisco.
