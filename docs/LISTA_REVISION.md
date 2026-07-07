@@ -966,3 +966,34 @@ VALIDADO: py_compile · node --check · unitarias (attrs genéricos, percepcion_
   casos) · harness zaRenderResults CON y SIN oferta → cero N/D, ZA-5/6 presentes ·
   tplMapa con capas y 72vh · verify_all 8/8 + render 10/10 (payload en vivo).
   PENDIENTE (mismo gate API): dump de campos, verify_interactive, GDL — loops corriendo.
+
+## F-C parcial. RES-1/3/5 + INV-4 (lo independiente del ticket P3) — [x] HECHO (6 jul 2026)
+BACKEND (app.py):
+  • derive_resumen_comercial(ft, segments): por PROYECTO estatus comercial (activo=inventario
+    disponible · agotado=vendió todo · sin_dato), % desplazado, MEDIANAS DUALES de m²/$m²/
+    precio (todo el inventario vs SOLO disponible · decisión RES-3) y producto ESTRELLA.
+  • _estrella_de: criterio documentado RES-5 (1º % desplazado · 2º absorción observada ·
+    3º vendidas · evidencia mínima 3 ventas). _tipologias_planas: filas canónicas de ft.
+  • oferta_stats: stats robustas duales de zona (pm2/m2/precio/abs × total/disponible).
+  • top_estrella: TOP 3 de la zona (excluyendo ganadoras por ronda) + estrella POR SEGMENTO
+    de precio SOLO cuando >1 mercado tiene estrella (regla de Héctor). Replicable a todos
+    los usos (misma forma canónica de estrella en el catálogo).
+  • POST /api/zona/estrella_filtro (INV-4): corredor a la medida con rangos manuales del
+    usuario (precio/m²/recámaras) calculado SIEMPRE en backend sobre _typologies del
+    análisis en caché → estrella del corredor + stats robustas + comparación vs estrella
+    de la zona. SECTION_REGISTRY: resumen/inventario sirven los campos nuevos vía
+    /api/zona/seccion (ARQ-MODULAR).
+FRONT (solo muestra):
+  • Resumen: tabla ordenada ACTIVOS→AGOTADOS→sin dato con badges; columnas de medianas
+    duales (tamaño incluido · RES-3) y ticket mediana; subrenglón ★ producto estrella por
+    proyecto; tarjetas 🏆 TOP 3 de la zona + tabla por segmento; KPIs con MEDIANAS y núcleo
+    P25-P75 (sustituyen promedios mostrados); "TCA" → "Crecimiento anual de hogares (TCA)";
+    GLOSARIO al pie (tplGlosario, reutilizable).
+  • Inventario: tarjeta "Corredor a la medida" con rangos manuales + botón que llama al
+    endpoint y pinta estrella del corredor vs zona con núcleo P25-P75.
+  • Hidratación: window.DATARIA_ANALISIS_KEY = data.analisis_key.
+PENDIENTE P3 (anotado en el propio payload/nota): ventana de agotados a 8 meses,
+absorción mes/trimestre/histórica y % plusvalía por periodo → serie temporal del ticket.
+VALIDADO: py_compile · node --check · unitarias backend (estatus/estrella/medianas duales/
+top3/por_segmento/endpoint con filtros) · harness front (payload nuevo, payload VIEJO
+retrocompatible, INV-4 presente) · verify_all 8/8 + render 10/10 (en vivo).

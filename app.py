@@ -3377,6 +3377,131 @@ from typing import Optional, List, Dict, Any
 _pm2v = _pm2
 
 
+# ════════════ F-C · RESUMEN COMERCIAL (RES-1 parcial · RES-3 · RES-5) ════════════
+EVIDENCIA_MIN_ESTRELLA = 3   # vendidas mínimas para calificar como producto estrella
+
+
+def _tipologias_planas(ft: List[Dict]) -> List[Dict[str, Any]]:
+    """Aplana ft a filas de tipología con nombres canónicos del catálogo."""
+    rows = []
+    for f in ft:
+        a = f.get("attributes", f)
+        nombre = a.get("PROYECTO") or a.get("Nombre")
+        if not nombre:
+            continue
+        rows.append({
+            "proyecto": nombre,
+            "precio": _price(a.get("F____UNIDAD")),
+            "pm2": _pm2v(a.get("F___M2")),
+            "m2": _num(a.get("ÁREA_TOTAL")) or _num(a.get("ÁREA_PRIVATIVA")),
+            "rec": _rec_to_int(a.get("CANTIDAD_DE_RECAMARAS")),
+            "vendidas": int(_num(a.get("UNIDADES_VENDIDAS")) or 0),
+            "disp": int(_num(a.get("UNIDADES_DISPONIBLES")) or 0),
+            "abs": _num(a.get("Abs_Demanda")),
+        })
+    return rows
+
+
+def _estrella_de(rows: List[Dict], min_vendidas: int = EVIDENCIA_MIN_ESTRELLA) -> Optional[Dict[str, Any]]:
+    """PRODUCTO ESTRELLA (RES-5 · criterio documentado): entre tipologías con evidencia
+    real de venta (vendidas ≥ 3): 1º mayor % DESPLAZADO, 2º mayor ABSORCIÓN observada,
+    3º más vendidas. Sin candidatos → None (no se inventa estrella)."""
+    cand = []
+    for t in rows:
+        tot = (t.get("vendidas") or 0) + (t.get("disp") or 0)
+        if (t.get("vendidas") or 0) >= min_vendidas and tot > 0:
+            cand.append({**t, "desplazamiento_pct": round(t["vendidas"] / tot * 100, 1)})
+    if not cand:
+        return None
+    b = max(cand, key=lambda t: (t["desplazamiento_pct"], t.get("abs") or 0, t["vendidas"]))
+    return {"proyecto": b["proyecto"], "rec": b.get("rec"),
+            "m2": round(b["m2"]) if b.get("m2") else None,
+            "precio_M": round(b["precio"] / 1e6, 2) if b.get("precio") else None,
+            "pm2": round(b["pm2"]) if b.get("pm2") else None,
+            "vendidas": b["vendidas"], "disp": b["disp"],
+            "desplazamiento_pct": b["desplazamiento_pct"],
+            "abs": round(b["abs"], 2) if b.get("abs") else None}
+
+
+def derive_resumen_comercial(ft: List[Dict], segments: Optional[List[Dict]] = None) -> Dict[str, Any]:
+    """F-C · Clasificación comercial por proyecto + métricas ROBUSTAS duales + estrella.
+      • estatus: activo (inventario disponible) · agotado (vendió todo) · sin_dato.
+      • Medianas de m²/$m²/precio para TODO el inventario y para SOLO DISPONIBLE
+        (decisión RES-3: disponible manda para precio vigente; total para velocidad/mezcla).
+      • producto_estrella por proyecto + TOP 3 de la zona + por segmento cuando hay >1
+        mercado con estrella (misma lógica para todos los usos inmobiliarios).
+    NOTA P3: la ventana 'agotados en los últimos 8 meses' y las absorciones por periodo
+    (mes/trimestre/histórica) se activan cuando la base exponga la serie temporal."""
+    rows = _tipologias_planas(ft)
+    por_proy: Dict[str, List[Dict]] = {}
+    for t in rows:
+        por_proy.setdefault(t["proyecto"], []).append(t)
+    proyectos: Dict[str, Any] = {}
+    for nombre, ts in por_proy.items():
+        vend = sum(t["vendidas"] for t in ts)
+        disp = sum(t["disp"] for t in ts)
+        con_dato = (vend + disp) > 0
+        estatus = ("activo" if disp > 0 else "agotado") if con_dato else "sin_dato"
+        d_ts = [t for t in ts if t["disp"] > 0]
+        tot = vend + disp
+        proyectos[nombre] = {
+            "estatus": estatus,
+            "vendidas": vend, "disp": disp,
+            "desplazamiento_pct": round(vend / tot * 100, 1) if tot else None,
+            "m2_mediana": _stats_robustas([t["m2"] for t in ts])["mediana"],
+            "m2_mediana_disp": _stats_robustas([t["m2"] for t in d_ts])["mediana"],
+            "pm2_mediana": _stats_robustas([t["pm2"] for t in ts])["mediana"],
+            "pm2_mediana_disp": _stats_robustas([t["pm2"] for t in d_ts])["mediana"],
+            "precio_mediana_M": (lambda v: round(v / 1e6, 2) if v else None)(
+                _stats_robustas([t["precio"] for t in ts])["mediana"]),
+            "abs_mediana": _stats_robustas([t["abs"] for t in ts if t.get("abs")])["mediana"],
+            "n_tipologias": len(ts),
+            "estrella": _estrella_de(ts),
+        }
+    d_rows = [t for t in rows if t["disp"] > 0]
+    oferta_stats = {
+        "pm2_total": _stats_robustas([t["pm2"] for t in rows]),
+        "pm2_disponible": _stats_robustas([t["pm2"] for t in d_rows]),
+        "m2_total": _stats_robustas([t["m2"] for t in rows]),
+        "m2_disponible": _stats_robustas([t["m2"] for t in d_rows]),
+        "precio_M_total": _stats_robustas([t["precio"] / 1e6 for t in rows if t.get("precio")]),
+        "precio_M_disponible": _stats_robustas([t["precio"] / 1e6 for t in d_rows if t.get("precio")]),
+        "abs_total": _stats_robustas([t["abs"] for t in rows if t.get("abs")]),
+        "abs_disponible": _stats_robustas([t["abs"] for t in d_rows if t.get("abs")]),
+    }
+    # TOP 3 de la zona (excluyendo la tipología ganadora en cada ronda)
+    top_zona: List[Dict] = []
+    pool = rows[:]
+    for _ in range(3):
+        e = _estrella_de(pool)
+        if not e:
+            break
+        top_zona.append(e)
+        for i, t in enumerate(pool):
+            if (t["proyecto"] == e["proyecto"] and t.get("rec") == e.get("rec")
+                    and (round(t["m2"]) if t.get("m2") else None) == e.get("m2")):
+                pool.pop(i)
+                break
+    # Estrella por SEGMENTO de precio (solo cuando hay MÁS de un mercado con estrella)
+    por_segmento: Dict[str, Any] = {}
+    for s in (segments or []):
+        vmin, vmax = s.get("val_min"), s.get("val_max")
+        if vmin is None or vmax is None:
+            continue
+        e = _estrella_de([t for t in rows if t.get("precio") and vmin <= t["precio"] < vmax])
+        if e:
+            por_segmento[s.get("bucket")] = e
+    if len(por_segmento) < 2:
+        por_segmento = {}
+    return {
+        "proyectos": proyectos,
+        "oferta_stats": oferta_stats,
+        "top_estrella": {"zona": top_zona, "por_segmento": por_segmento},
+        "criterio_estrella": ("1º % desplazado · 2º absorción observada · 3º vendidas · "
+                              f"evidencia mínima {EVIDENCIA_MIN_ESTRELLA} vendidas"),
+    }
+
+
 def _build_proyectos(resumen: List[Dict]) -> List[Dict[str, Any]]:
     out = []
     for row in resumen:
@@ -3691,6 +3816,8 @@ def assemble_zone_payload(req, profile, isocronas, resumen, ft, pagos, resumen_r
     proyectos = _build_proyectos(resumen)
     kpis = _build_kpis(proyectos, ft)
     inv = _build_inventario(ft)
+    # F-C · clasificación comercial, medianas duales y producto estrella (RES-1/3/5)
+    res_com = derive_resumen_comercial(ft, segments)
 
     # Centro = pin del predio
     center = [req.lat, req.lng]
@@ -3772,6 +3899,11 @@ def assemble_zone_payload(req, profile, isocronas, resumen, ft, pagos, resumen_r
         "analisis_version": identidad["analisis_version"],
         "analisis_id_str": identidad["analisis_id_str"],
         "analisis_fecha": identidad["analisis_fecha"],
+        # F-C · resumen comercial (activos/agotados, medianas duales, producto estrella)
+        "resumen_comercial": res_com["proyectos"],
+        "oferta_stats": res_com["oferta_stats"],
+        "top_estrella": res_com["top_estrella"],
+        "criterio_estrella": res_com["criterio_estrella"],
         "municipality": municipio,
         "label": _zone_label(producto_modo, kpis),
         "center": center, "zoom": 13,
@@ -4316,13 +4448,17 @@ app.add_middleware(
 
 SECTION_REGISTRY = {
     "resumen":    {"label": "Resumen ejecutivo", "page_id": "page-resumen",
-                   "access_tier": "preliminar", "payload_keys": ["name", "subtitle", "kpis"]},
+                   "access_tier": "preliminar",
+                   "payload_keys": ["name", "subtitle", "kpis", "resumen_comercial",
+                                    "oferta_stats", "top_estrella", "criterio_estrella"]},
     "mapa":       {"label": "Mapa de zona", "page_id": "page-mapa",
                    "access_tier": "preliminar", "payload_keys": ["center", "proyectos", "isocronas"]},
     "demografia": {"label": "Demografía / NSE", "page_id": "page-resumen",
                    "access_tier": "preliminar", "payload_keys": ["population", "households", "nse", "nse_dominante"]},
     "inventario": {"label": "Inventario / Oferta", "page_id": "page-inventario",
-                   "access_tier": "detalle", "payload_keys": ["inventario_precio", "inventario_m2", "proyectos"]},
+                   "access_tier": "detalle",
+                   "payload_keys": ["inventario_precio", "inventario_m2", "proyectos",
+                                    "oferta_stats", "top_estrella", "resumen_comercial"]},
     "demanda":    {"label": "Demanda por perfil", "page_id": "page-demanda",
                    "access_tier": "detalle", "payload_keys": ["demanda_segmentos", "mercado_meta", "civil"]},
     "producto":   {"label": "Producto óptimo (DPO)", "page_id": "page-producto",
@@ -4486,6 +4622,70 @@ def _analysis_cache_get(key: Optional[str]) -> Optional[Dict[str, Any]]:
 class SeccionRequest(BaseModel):
     analisis_key: str          # el analisis_id_str que devolvió /api/zona/procesar
     seccion: str               # clave de SECTION_REGISTRY (resumen, mapa, demanda, ...)
+
+
+class EstrellaFiltroRequest(BaseModel):
+    """INV-4 · Corredor a la medida: el usuario define rangos manuales y el backend
+    calcula el producto estrella + estadística robusta de ESE corredor."""
+    analisis_key: str
+    precio_min_M: Optional[float] = None
+    precio_max_M: Optional[float] = None
+    m2_min: Optional[float] = None
+    m2_max: Optional[float] = None
+    rec: Optional[int] = None
+
+
+@app.post("/api/zona/estrella_filtro")
+def estrella_filtro(req: EstrellaFiltroRequest):
+    """INV-4 · Estrella y métricas robustas del corredor definido por el usuario,
+    comparadas contra la estrella de la zona. Calcula SIEMPRE en backend sobre las
+    tipologías del análisis en caché (el front solo captura rangos y muestra)."""
+    payload = _analysis_cache_get(req.analisis_key)
+    if not payload:
+        return {"ok": False, "error": "Análisis no encontrado en caché · reprocesa la zona"}
+    zd = payload.get("zone_data") or {}
+    typ = zd.get("_typologies") or {}
+    rows = []
+    for proyecto, ts in typ.items():
+        for t in ts:
+            rows.append({
+                "proyecto": proyecto,
+                "precio": t.get("precio_ud"),
+                "pm2": t.get("precio_m2"),
+                "m2": t.get("area_total") or t.get("area_priv"),
+                "rec": t.get("rec"),
+                "vendidas": int(t.get("unid_vend") or 0),
+                "disp": int(t.get("unid_disp") or 0),
+                "abs": t.get("abs"),
+            })
+    def _pasa(t):
+        if req.precio_min_M is not None and not (t["precio"] and t["precio"] / 1e6 >= req.precio_min_M):
+            return False
+        if req.precio_max_M is not None and not (t["precio"] and t["precio"] / 1e6 <= req.precio_max_M):
+            return False
+        if req.m2_min is not None and not (t["m2"] and t["m2"] >= req.m2_min):
+            return False
+        if req.m2_max is not None and not (t["m2"] and t["m2"] <= req.m2_max):
+            return False
+        if req.rec is not None and t.get("rec") != req.rec:
+            return False
+        return True
+    corredor = [t for t in rows if _pasa(t)]
+    est_zona = ((zd.get("top_estrella") or {}).get("zona") or [None])[0]
+    return {
+        "ok": True,
+        "n_tipologias": len(corredor),
+        "n_proyectos": len({t["proyecto"] for t in corredor}),
+        "estrella_corredor": _estrella_de(corredor),
+        "estrella_zona": est_zona,
+        "stats": {
+            "pm2": _stats_robustas([t["pm2"] for t in corredor]),
+            "precio_M": _stats_robustas([t["precio"] / 1e6 for t in corredor if t.get("precio")]),
+            "m2": _stats_robustas([t["m2"] for t in corredor]),
+            "abs": _stats_robustas([t["abs"] for t in corredor if t.get("abs")]),
+        },
+        "nota_p3": "Los % de plusvalía por periodo se activan con la serie temporal (ticket P3).",
+    }
 
 
 @app.post("/api/zona/seccion")

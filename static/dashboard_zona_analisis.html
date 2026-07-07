@@ -1688,6 +1688,24 @@ function addMarkersForZone() {
 }
 
 /* ══════════════ PAGE TEMPLATES ══════════════ */
+/* RES-3 · Glosario estándar al pie de las secciones (los acrónimos se explican una vez) */
+function tplGlosario(){
+  const T = [
+    ['TCA','Tasa de crecimiento anual de hogares (%)'],
+    ['Mediana','Valor central: la mitad de los casos queda arriba y la mitad abajo (no la distorsionan los extremos)'],
+    ['MAD','Desviación absoluta mediana: dispersión típica alrededor de la mediana'],
+    ['CV robusto','Dispersión relativa (MAD ajustado ÷ mediana): qué tan parejo es el mercado'],
+    ['Núcleo P25–P75','Rango donde vive el 50% central de los casos'],
+    ['Fuera de norma','Caso atípico (regla de Tukey): se muestra, pero no define la zona'],
+    ['Absorción','Unidades vendidas por mes'],
+    ['% desplazado','Vendidas ÷ (vendidas + disponibles)'],
+    ['Producto estrella','Tipología con mayor éxito comercial: % desplazado, luego absorción observada, con evidencia mínima de 3 ventas'],
+  ];
+  return `<div class="card" style="margin-top:16px;"><div class="card-title" style="font-size:12px;">Glosario</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:6px 18px;font-size:11px;color:var(--t2,#8A90A6);margin-top:8px;">
+    ${T.map(([k,v])=>`<div><b>${k}</b> · ${v}</div>`).join('')}</div></div>`;
+}
+
 function tplResumen(z) {
   const k = z.kpis;
   return `
@@ -1701,26 +1719,76 @@ function tplResumen(z) {
       <div class="kpi" style="--kpi-color:var(--teal)"><div class="kpi-label">Unidades totales</div><div class="kpi-val">${fmtN(k.unidades)}</div><div class="kpi-sub">Oferta comparable acumulada</div></div>
       <div class="kpi" style="--kpi-color:var(--green)"><div class="kpi-label">Unidades vendidas</div><div class="kpi-val">${fmtN(k.vendidas)}</div><div class="kpi-sub">${spct(k.vendidas,k.unidades)} avance comercial prom.</div></div>
       <div class="kpi" style="--kpi-color:var(--amber)"><div class="kpi-label">Disponibles</div><div class="kpi-val">${fmtN(k.disponibles)}</div><div class="kpi-sub">${spct(k.disponibles,k.unidades)} del inventario</div></div>
-      <div class="kpi" style="--kpi-color:var(--purple)"><div class="kpi-label">Absorción promedio</div><div class="kpi-val">${sf(k.avg_abs,2)}</div><div class="kpi-sub">Unidades / mes ponderado</div></div>
-      <div class="kpi" style="--kpi-color:var(--blue)"><div class="kpi-label">Precio prom. $/m²</div><div class="kpi-val">${fmtK(k.avg_pm2)}</div><div class="kpi-sub">MXN/m² ponderado</div></div>
-      <div class="kpi" style="--kpi-color:var(--green)"><div class="kpi-label">Ticket promedio</div><div class="kpi-val">${k.avg_ticket===null||k.avg_ticket===undefined||isNaN(k.avg_ticket)?'N/D':'$'+Number(k.avg_ticket).toFixed(1)+'M'}</div><div class="kpi-sub">MXN por unidad</div></div>
-      <div class="kpi" style="--kpi-color:var(--teal)"><div class="kpi-label">TCA hogares</div><div class="kpi-val">${sf(z.tca,2,'%')}</div><div class="kpi-sub">Pob. ${fmtN(z.population)} · Hog. ${fmtN(z.households)}</div></div>
+      ${(()=>{ /* RES-2/3 · medianas robustas del backend (disponible manda para precio vigente) */
+        const os = z.oferta_stats || {};
+        const pick = (kd, kt) => (os[kd] && os[kd].n) ? os[kd] : ((os[kt] && os[kt].n) ? os[kt] : null);
+        const sAbs = pick('abs_disponible','abs_total');
+        const sPm2 = pick('pm2_disponible','pm2_total');
+        const sTk  = pick('precio_M_disponible','precio_M_total');
+        return `
+      <div class="kpi" style="--kpi-color:var(--purple)"><div class="kpi-label">Absorción (mediana)</div><div class="kpi-val">${sAbs?sAbs.mediana:sf(k.avg_abs,2)}</div><div class="kpi-sub">un/mes · núcleo ${sAbs&&sAbs.p25!=null?sAbs.p25+'–'+sAbs.p75:'—'}</div></div>
+      <div class="kpi" style="--kpi-color:var(--blue)"><div class="kpi-label">$/m² mediana (disponible)</div><div class="kpi-val">${sPm2?fmtK(sPm2.mediana):fmtK(k.avg_pm2)}</div><div class="kpi-sub">núcleo ${sPm2&&sPm2.p25!=null?fmtK(sPm2.p25)+'–'+fmtK(sPm2.p75):'—'}</div></div>
+      <div class="kpi" style="--kpi-color:var(--green)"><div class="kpi-label">Ticket mediana (disponible)</div><div class="kpi-val">${sTk?'$'+Number(sTk.mediana).toFixed(1)+'M':(k.avg_ticket==null||isNaN(k.avg_ticket)?'—':'$'+Number(k.avg_ticket).toFixed(1)+'M')}</div><div class="kpi-sub">núcleo ${sTk&&sTk.p25!=null?'$'+sTk.p25.toFixed(1)+'–$'+sTk.p75.toFixed(1)+'M':'—'}</div></div>
+      <div class="kpi" style="--kpi-color:var(--teal)"><div class="kpi-label">Crecimiento anual de hogares (TCA)</div><div class="kpi-val">${sf(z.tca,2,'%')}</div><div class="kpi-sub">Pob. ${fmtN(z.population)} · Hog. ${fmtN(z.households)}</div></div>`; })()}
     </div>
-    <div class="card"><div class="card-header"><div class="card-title">Comparables del corredor · proyectos en comercialización</div></div>
+    ${(()=>{ /* RES-1 parcial · activos primero, luego agotados · medianas duales · ★ estrella */
+      const rc = z.resumen_comercial || {};
+      const orden = {activo:0, agotado:1, sin_dato:2};
+      const lista = z.proyectos.slice().sort((a,b)=>{
+        const ra=rc[a.name]||{}, rb=rc[b.name]||{};
+        const oa=(ra.estatus in orden)?orden[ra.estatus]:3, ob=(rb.estatus in orden)?orden[rb.estatus]:3;
+        return oa-ob || (b.abs||0)-(a.abs||0);
+      });
+      const estBadge = e => e==='activo' ? '<span class="badge b-green">ACTIVO</span>'
+        : e==='agotado' ? '<span class="badge b-purple">AGOTADO</span>'
+        : '<span class="badge b-amber">SIN DATO</span>';
+      const dual = (a,b,suf)=> a!=null ? `${Math.round(a).toLocaleString()}${b!=null?' / '+Math.round(b).toLocaleString():''}${suf||''}` : '—';
+      return `<div class="card"><div class="card-header"><div class="card-title">Comparables del corredor · activos primero, luego agotados</div></div>
+      <div style="font-size:11px;color:var(--t2);margin:2px 0 8px;">Tamaño y $/m² en <b>mediana</b> (todo el inventario / solo disponible) · fila ★ = producto estrella del proyecto${''}</div>
       <div class="tbl-wrap"><table>
-        <thead><tr><th>Proyecto</th><th>Avance</th><th>$/m²</th><th>Ticket</th><th>Abs/mes</th></tr></thead>
-        <tbody>${z.proyectos.map(p => {
+        <thead><tr><th>Proyecto</th><th>Estatus</th><th>Avance</th><th>Tamaño med.</th><th>$/m² med.</th><th>Ticket med.</th><th>Abs/mes</th></tr></thead>
+        <tbody>${lista.map(p => {
+          const r = rc[p.name]||{};
           const absC = p.preventa?'var(--purple)':(p.abs===null||p.abs===undefined)?'var(--t2)':p.abs>=4?'var(--green)':p.abs>=2?'var(--blue)':'var(--amber)';
-          const avL = p.preventa?'PREV':(p.avance===null||p.avance===undefined?'N/D':p.avance+'%');
-          const avB = p.preventa?'b-purple':(p.avance===null||p.avance===undefined)?'b-purple':p.avance>=80?'b-green':p.avance>=50?'b-blue':p.avance>=20?'b-amber':'b-purple';
-          const aT = p.preventa?'—':sf(p.abs,2);
-          return `<tr><td class="td-name" style="${p.preventa?'color:var(--purple);':''}">${p.name}</td><td><span class="badge ${avB}">${avL}</span></td><td>${p.pm2===null||p.pm2===undefined?'N/D':'$'+p.pm2.toLocaleString()}</td><td>${p.ticket===null||p.ticket===undefined?'N/D':'$'+Number(p.ticket).toFixed(2)+'M'}</td><td style="color:${absC};font-weight:600;">${aT}</td></tr>`;
+          const avL = p.preventa?'PREV':(r.desplazamiento_pct!=null? r.desplazamiento_pct+'%' : (p.avance==null?'—':p.avance+'%'));
+          const av = r.desplazamiento_pct!=null? r.desplazamiento_pct : p.avance;
+          const avB = p.preventa?'b-purple':(av==null)?'b-purple':av>=80?'b-green':av>=50?'b-blue':av>=20?'b-amber':'b-purple';
+          const aT = p.preventa?'—':(r.abs_mediana!=null? r.abs_mediana : sf(p.abs,2));
+          const tk = r.precio_mediana_M!=null? '$'+Number(r.precio_mediana_M).toFixed(2)+'M' : (p.ticket==null?'—':'$'+Number(p.ticket).toFixed(2)+'M');
+          const fila = `<tr><td class="td-name" style="${p.preventa?'color:var(--purple);':''}">${p.name}</td>
+            <td>${estBadge(r.estatus)}</td>
+            <td><span class="badge ${avB}">${avL}</span></td>
+            <td>${dual(r.m2_mediana, r.m2_mediana_disp,' m²')}</td>
+            <td>${r.pm2_mediana!=null? '$'+dual(r.pm2_mediana, r.pm2_mediana_disp) : (p.pm2==null?'—':'$'+p.pm2.toLocaleString())}</td>
+            <td>${tk}</td>
+            <td style="color:${absC};font-weight:600;">${aT}</td></tr>`;
+          const e = r.estrella;
+          const sub = e ? `<tr><td colspan="7" style="padding:4px 10px 8px 24px;font-size:11px;color:var(--t2);border-bottom:1px solid var(--hair,#C9CCD6);">★ <b>Producto estrella:</b> ${e.rec!=null?e.rec+' rec':'—'} · ${e.m2!=null?e.m2+' m²':'—'} · ${e.precio_M!=null?'$'+e.precio_M+'M':'—'} · ${e.pm2!=null?'$'+e.pm2.toLocaleString()+'/m²':'—'} · desplazado <b>${e.desplazamiento_pct}%</b> · ${e.abs!=null?e.abs+' un/mes':'s/abs'}</td></tr>` : '';
+          return fila + sub;
         }).join('')}</tbody></table></div>
-    </div>
+    </div>`; })()}
     <div class="row-2">
       <div class="card"><div class="card-title">Absorción mensual por proyecto</div><div class="chart-box" style="height:340px;"><canvas id="absChart"></canvas></div></div>
       <div class="card"><div class="card-title">Precio $/m² vs absorción · radio = unidades totales</div><div class="chart-box" style="height:340px;"><canvas id="bubbleChart"></canvas></div></div>
-    </div>`;
+    </div>
+    ${(()=>{ /* RES-5 · TOP 3 producto estrella de la zona (+ por segmento si hay >1 mercado) */
+      const te = z.top_estrella || {};
+      const top = te.zona || [];
+      if(!top.length) return '';
+      const colores = ['green','blue','purple'];
+      const card = (e,i)=>`<div class="kpi" style="--kpi-color:var(--${colores[i]||'teal'})">
+        <div class="kpi-label">★ Top ${i+1} · ${e.proyecto}</div>
+        <div class="kpi-val" style="font-size:15px;">${e.rec!=null?e.rec+' rec':'—'} · ${e.m2!=null?e.m2+' m²':'—'} · ${e.precio_M!=null?'$'+e.precio_M+'M':'—'}</div>
+        <div class="kpi-sub">${e.pm2!=null?'$'+e.pm2.toLocaleString()+'/m² · ':''}desplazado ${e.desplazamiento_pct}% · ${e.abs!=null?e.abs+' un/mes':'s/abs'}</div></div>`;
+      const seg = te.por_segmento || {};
+      const segTabla = Object.keys(seg).length ? `<div class="card" style="margin-top:12px;"><div class="card-title">Producto estrella por segmento de demanda</div>
+        <div class="tbl-wrap"><table><thead><tr><th>Segmento</th><th>Proyecto</th><th>Programa</th><th>Precio</th><th>$/m²</th><th>Desplazado</th><th>Abs</th></tr></thead><tbody>${
+          Object.entries(seg).map(([b,e])=>`<tr><td>${b}</td><td class="td-name">${e.proyecto}</td><td>${e.rec!=null?e.rec+' rec':'—'} · ${e.m2!=null?e.m2+' m²':'—'}</td><td>${e.precio_M!=null?'$'+e.precio_M+'M':'—'}</td><td>${e.pm2!=null?'$'+e.pm2.toLocaleString():'—'}</td><td>${e.desplazamiento_pct}%</td><td>${e.abs!=null?e.abs:'—'}</td></tr>`).join('')
+        }</tbody></table></div></div>` : '';
+      return `<div class="card" style="margin-top:16px;"><div class="card-title">🏆 Top 3 · producto estrella de la zona</div>
+        <div class="kpi-row" style="grid-template-columns:repeat(3,1fr);margin-top:8px;">${top.map(card).join('')}</div>
+        <div style="font-size:10px;color:var(--t2);margin-top:6px;">Criterio: ${z.criterio_estrella||'% desplazado · absorción · vendidas'}</div></div>${segTabla}`; })()}
+    ${tplGlosario()}`;
 }
 
 function tplMapa(z) {
@@ -1784,6 +1852,20 @@ function tplInventario(z) {
       <div class="card"><div class="card-title">Inventario por tamaño (m²) · vista agregada</div>
         <div class="chart-box" style="height:200px;"><canvas id="invM2Chart"></canvas></div>
       </div>
+    </div>
+
+    <!-- INV-4 · CORREDOR A LA MEDIDA (rangos manuales · cálculo 100% backend) -->
+    <div class="card" style="margin-bottom:16px;">
+      <div class="card-title">Corredor a la medida · define tus rangos</div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-top:8px;">
+        <label style="font-size:11px;color:var(--t2);">Precio mín (M MXN)<br><input class="za-in" id="ef-pmin" type="number" step="0.1" min="0" style="width:120px;"></label>
+        <label style="font-size:11px;color:var(--t2);">Precio máx (M MXN)<br><input class="za-in" id="ef-pmax" type="number" step="0.1" min="0" style="width:120px;"></label>
+        <label style="font-size:11px;color:var(--t2);">m² mín<br><input class="za-in" id="ef-m2min" type="number" min="0" style="width:90px;"></label>
+        <label style="font-size:11px;color:var(--t2);">m² máx<br><input class="za-in" id="ef-m2max" type="number" min="0" style="width:90px;"></label>
+        <label style="font-size:11px;color:var(--t2);">Recámaras<br><input class="za-in" id="ef-rec" type="number" min="1" max="4" style="width:80px;"></label>
+        <button class="mf-btn" onclick="estrellaFiltroRun()">★ Analizar corredor</button>
+      </div>
+      <div id="ef-result" style="margin-top:10px;"></div>
     </div>
 
     <!-- ═══════════ FILTER BAR ═══════════ -->
@@ -6853,6 +6935,8 @@ async function zaRunAnalysis(){
       DI_VP_DETAIL = (data.dim_data && data.dim_data.di_detail) ? data.dim_data.di_detail : null;
     }
     ZONE_DATA[CURRENT_ZONE] = data.zone_data;
+    // ARQ-MODULAR · llave del análisis en caché (secciones independientes y corredor a la medida)
+    window.DATARIA_ANALISIS_KEY = data.analisis_key || null;
     // VARIABLES NOMBRADAS DEL ANÁLISIS · fuente única de verdad para TODAS las secciones.
     // Acceso desde cualquier sección: window.ANALYSIS_VARS o getVars().
     window.ANALYSIS_VARS = data.zone_data._vars || null;
@@ -7008,6 +7092,40 @@ function _toggleCapaEn(map, store, k, btn){
 }
 function zaToggleCapa(k, btn){ _toggleCapaEn(zaMap, ZA_CAPAS, k, btn); }
 function mapaToggleCapa(k, btn){ _toggleCapaEn(leafMap, MAPA_CAPAS, k, btn); }
+
+/* INV-4 · corredor a la medida: el backend calcula estrella + robustas del corredor */
+async function estrellaFiltroRun(){
+  const el = document.getElementById('ef-result');
+  if(!el) return;
+  const key = window.DATARIA_ANALISIS_KEY;
+  if(!key){ el.innerHTML = '<div style="font-size:12px;color:var(--t2);">Procesa una zona primero: el corredor se calcula en el backend sobre el análisis activo.</div>'; return; }
+  const g = id => { const v = document.getElementById(id); return (v && v.value !== '') ? Number(v.value) : null; };
+  el.innerHTML = '<div style="font-size:12px;color:var(--t2);">Calculando corredor…</div>';
+  try{
+    const r = await fetch(DATARIA_BACKEND_URL.replace(/\/+$/,'') + '/api/zona/estrella_filtro', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({analisis_key:key, precio_min_M:g('ef-pmin'), precio_max_M:g('ef-pmax'),
+                            m2_min:g('ef-m2min'), m2_max:g('ef-m2max'), rec:g('ef-rec')})});
+    const j = await r.json();
+    if(!j.ok){ el.innerHTML = `<div style="font-size:12px;color:var(--amber,#F59E0B);">${j.error||'Sin datos'}</div>`; return; }
+    const fE = e => e ? `<b>${e.proyecto}</b> · ${e.rec!=null?e.rec+' rec':'—'} · ${e.m2!=null?e.m2+' m²':'—'} · ${e.precio_M!=null?'$'+e.precio_M+'M':'—'} · ${e.pm2!=null?'$'+e.pm2.toLocaleString()+'/m²':'—'} · desplazado <b>${e.desplazamiento_pct}%</b> · ${e.abs!=null?e.abs+' un/mes':'s/abs'}`
+                       : 'Sin estrella en este corredor (evidencia mínima: 3 ventas).';
+    const st = j.stats || {};
+    const ok = k2 => st[k2] && st[k2].n;
+    el.innerHTML = `
+      <div class="za-kv">
+        <span>Tipologías en el corredor</span><b>${j.n_tipologias} (${j.n_proyectos} proyectos)</b>
+        <span>$/m² mediana · núcleo P25–P75</span><b>${ok('pm2')? '$'+Math.round(st.pm2.mediana).toLocaleString()+' · $'+Math.round(st.pm2.p25).toLocaleString()+'–$'+Math.round(st.pm2.p75).toLocaleString() : '—'}</b>
+        <span>Precio mediana</span><b>${ok('precio_M')? '$'+Number(st.precio_M.mediana).toFixed(2)+'M' : '—'}</b>
+        <span>Absorción mediana</span><b>${ok('abs')? st.abs.mediana+' un/mes' : '—'}</b>
+      </div>
+      <div class="za-res-note" style="margin-top:8px;">★ <b>Estrella del corredor:</b> ${fE(j.estrella_corredor)}</div>
+      <div class="za-res-note">★ <b>Estrella de la zona:</b> ${fE(j.estrella_zona)}</div>
+      <div style="font-size:10px;color:var(--t2);margin-top:4px;">${j.nota_p3||''}</div>`;
+  }catch(e){
+    el.innerHTML = `<div style="font-size:12px;color:var(--amber,#F59E0B);">Error consultando el backend: ${e.message}</div>`;
+  }
+}
 
 /* ZA-5 · despliegue de la lista de cada set de competidores */
 function zaToggleSetList(setKey){

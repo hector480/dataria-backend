@@ -130,6 +130,20 @@ por etapa de vida, `tca`) · `di_detail{tipologia_hogar, personas_hogar, …}`.
 `municipios_todos` · `segmentos_demanda[]` · `productos[]` · `productos_renta[]` ·
 `sweet_spot`.
 
+## 8b. F-B/F-C · Variables nuevas (aditivas)
+| Variable | Qué es |
+|---|---|
+| `analisis_nombre/version/id_str/fecha` | ZA-8 · identidad universal del análisis (en zone_data y _vars) |
+| `analisis_key` | Llave del análisis en caché (= id_str) para `/api/zona/seccion` y `/api/zona/estrella_filtro` |
+| `stats_robustas{n,mediana,mad,cv_robusto,p10,p25,p75,p90,iqr,outliers_n,outliers,min,max}` | RES-2 · descriptor robusto estándar (en perception, valor_zona y oferta_stats) |
+| `agebs_geo[i].ring / area_km2 / attrs` | F-B · polígono decimado del AGEB, área y atributos publicados por la base (capas del mapa) |
+| `percepcion_detalle{pm2_mediana,pm2_mad,banda_nucleo,limite_inferior,limite_superior,extremos,n_comparables,outliers_n,nse_percepcion,mercado_meta{nse,ingreso_min,ingreso_max,ticket_ancla,perfiles,etapas_top,share_renta},nota}` | ZA-6 · delimitación de percepción + mercado meta |
+| `resumen_comercial{<proyecto>:{estatus,vendidas,disp,desplazamiento_pct,m2_mediana,m2_mediana_disp,pm2_mediana,pm2_mediana_disp,precio_mediana_M,abs_mediana,n_tipologias,estrella}}` | F-C · clasificación comercial por proyecto (activo/agotado/sin_dato) con medianas duales |
+| `oferta_stats{pm2_total,pm2_disponible,m2_*,precio_M_*,abs_*}` | F-C · stats robustas duales de la oferta (RES-3: disponible manda para precio vigente) |
+| `top_estrella{zona[3],por_segmento{bucket:estrella}}` + `criterio_estrella` | RES-5 · producto estrella (replicable a todos los usos) |
+| `estrella{proyecto,rec,m2,precio_M,pm2,vendidas,disp,desplazamiento_pct,abs}` | Forma canónica del producto estrella |
+| Endpoints nuevos | `POST /api/zona/seccion` · `POST /api/zona/estrella_filtro` · `GET /api/zona/geocode` · `GET /api/zona/reverse` |
+
 ## 9. Pendientes de catálogo (se agregarán al diseñar cada sección)
 Población flotante (`flotante_*`), mercado extranjero (`extranjero_*`), densidad
 (`densidad_ageb`), zona en transición (`zona_transicion`), perfiles ICSC/ULI
