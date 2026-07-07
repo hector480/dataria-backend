@@ -149,3 +149,11 @@ Población flotante (`flotante_*`), mercado extranjero (`extranjero_*`), densida
 (`densidad_ageb`), zona en transición (`zona_transicion`), perfiles ICSC/ULI
 (`perfil_usuario_*`), y variables propias de lotes / industrial / comercial / logística /
 hotel (prefijo por uso).
+
+## 8c. DEM-1 · Variables nuevas (aditivas)
+| Variable | Qué es |
+|---|---|
+| `segmentos_dem1[]` | Perfiles de demanda: `{perfil_id, cohorte(C1..C7), cohorte_label, nse, banda_ingreso_tag(alto/bajo/null·GMM), ixh_mediana, capacidad_pago_banda_M[2], hogares_stock, nuevas_fam_year, pool_activo, crecimiento_pct(TCA), programa{rec,cajones}, m2_banda[2], pm2_derivado_banda[2], ticket_banda_M[2], bucket_principal, fuente_masas, confianza{n_agebs,hogares_grupo}}` |
+| `dem1_meta` | `{metodo_masas, umbral{pct,hogares}, capacidad{pti_ref,pti_max,tasa,plazo_m,enganche}, gmm{nse:{k,medias,corte,motivo}}, conservacion{nf_buckets,nf_perfiles,ok}, nota_captable, version_modelo}` |
+| Constantes | `PTI_REF=0.30 · PTI_MAX=0.35 (banca MX · U3) · TASA_HIPOTECARIA_REF=0.105 (CONFIRMAR vigente) · PLAZO_HIP_MESES=240 · ENGANCHE_REF=0.10 · UMBRAL_PERFIL_PCT=0.05 · UMBRAL_PERFIL_HOG=300 (U1: calibrar)` — todas configurables por entorno |
+| `_BANDA_TAMANO_TICKET` / `_banda_tamano_por_ticket()` | FUENTE ÚNICA de bandas de tamaño por ticket (antes duplicada dentro de derive_productos_venta; mismos valores) |

@@ -113,11 +113,18 @@ independiente (ARQ-MODULAR). Los segments actuales NO se tocan (compatibilidad t
 3. Monotonía correcta: a mismo bucket, m²↑ ⇒ $/m²↓ (se verifica programáticamente).
 4. Jalisco (GDL/Zapopan) por ser lógica universal + batería completa 8/8, 10/10, 16/16.
 
-## Decisiones para el checkpoint (U)
-- **U1** · Umbral de masa para emitir un perfil: ¿≥5% de hogares de la zona o ≥300 hogares
-  (lo que ocurra primero)? Debajo del umbral el perfil se agrega al más cercano (no se
-  muestran migajas que aparenten precisión).
-- **U2** · Cajones sin normativa capturada: ¿tabla por cohorte×NSE de §2 como default?
-- **U3** · Capacidad de pago: ¿apruebas pasar de múltiplo fijo 4.5 a banda por mensualidad
-  (PTI 28%, tasa/plazo de referencia configurables, techo 4.5)? Cambia tickets de perfiles
-  de ingresos bajos (los vuelve realistas, como el caso El Carmen $0.54M ya corregido).
+## Decisiones del checkpoint (RESUELTAS con Héctor · 7 jul 2026)
+- **U1 · CALIBRACIÓN, no dogma**: 5% (convención de reporte en investigación de mercados:
+  celdas <5% aparentan precisión) y 300 hogares (regla 1/√n: error ±5-6% en proporciones)
+  son VALORES INICIALES. Como aquí el riesgo real es el error de ASIGNACIÓN en celdas
+  chicas + irrelevancia comercial (80 hogares no sostienen una torre), el umbral definitivo
+  se CALIBRA por sensibilidad (0/150/300/500) en zonas ancla: se fija donde los perfiles
+  dejan de cambiar conclusiones. Constantes configurables (DATARIA_UMBRAL_*).
+- **U2 · GO**: cajones default por cohorte×NSE (§2); la normativa capturada MANDA.
+- **U3 · CORREGIDO por Héctor**: el 28% era la convención de EUA (regla 28/36). Banca MX
+  suscribe 30-35% pago-ingreso (CONDUSEF ~30% prudente). Banda: PTI_REF=0.30 (central) a
+  PTI_MAX=0.35 (techo banca), tasa/plazo/enganche configurables (default 10.5% · 240 m ·
+  10% — CONFIRMAR tasa de referencia vigente con Héctor). Implicación documentada: a esas
+  tasas la capacidad ≈ 2.7-3.2× ingreso anual; el 4.5× histórico requiere enganche/
+  patrimonio — que es lo que "Rangos demanda vivienda" de la base ya captura (ese dato
+  SIGUE mandando en los buckets; la banda PTI aplica al derivar capacidad de perfiles).

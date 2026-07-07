@@ -1008,3 +1008,33 @@ mensualidad (reto al múltiplo fijo 4.5 → banda 3.5-4.5); GMM solo con masa su
 defecto "más m² ⇒ más $/m²" (monotonía verificable: a mismo ticket, m²↑ ⇒ $/m²↓).
 Decisiones abiertas: U1 umbral de masa (5% / 300 hog) · U2 cajones default por cohorte×NSE
 · U3 banda de capacidad por mensualidad. Validación comprometida en anclas + Jalisco.
+
+## DEM-1. Matriz de perfiles IMPLEMENTADA (checkpoint aprobado con U1 calibrable y U3 banca MX) — [x] BACKEND+FRONT · ancla en vivo EN CURSO (7 jul 2026)
+U1 justificado (5% convención de reporte · 300≈regla 1/√n) como INICIAL a calibrar por
+sensibilidad en anclas; U3 corregido por Héctor: PTI 30-35% banca MX (el 28% era regla de
+EUA); implicación documentada: capacidad ≈2.7-3.25× ingreso anual a tasa 10.5% (el 4.5×
+requiere patrimonio — lo captura "Rangos demanda vivienda", que sigue mandando en buckets).
+IMPLEMENTADO (app.py):
+  • _capacidad_pago_banda_M (mensualidad→crédito→precio, PTI 30/35, tasa/plazo/enganche env).
+  • _gmm2_bic: mezcla de 2 gaussianas 1-D por EM + BIC, salvaguarda n<30 → k=1, separación
+    relativa mínima 25%. Detecta submercados de ingreso (zonas en transición) por NSE.
+  • derive_segmentos_dem1: grupos por NSE (masas/pirámide/tipología reales por AGEB) →
+    asignación v1 documentada (unipersonales/corresidentes directos; familiares ∝ pirámide;
+    sin tipología → degradación explícita en fuente_masas) → umbral U1 con fusión al perfil
+    mayor del NSE → REPARTO de demanda por bucket con CONSERVACIÓN EXACTA (test: 520/520)
+    → programa por cohorte (U2: cajones default por cohorte×NSE, normativa mandará) →
+    m2_banda del programa+mínimos físicos → pm2_derivado_banda con MONOTONÍA verificada
+    (m²↑ ⇒ $/m²↓ a mismo ticket · corrige el defecto señalado por Héctor).
+  • _BANDA_TAMANO_TICKET a nivel módulo (fuente única; derive_productos_venta la reusa con
+    los MISMOS valores — verificado sin cambio de conducta).
+  • Payload: zone_data.segmentos_dem1 + dem1_meta; SECTION_REGISTRY.demanda los sirve.
+FRONT: tabla "Segmentos de demanda objetivo · por PERFIL" al inicio de Demanda (programa,
+  capacidad, $/m² derivado, conservación visible, notas GMM de transición); retrocompatible
+  (sin payload → no aparece).
+VALIDADO: py_compile · node --check · unitarias (capacidad exacta a 10.5%: $30k→$1.002-
+  1.169M; GMM salvaguarda+bimodal corte $47,341+unimodal; conservación 520.0/520.0; C→bucket
+  bajo y B→alto; C4=3 rec, C1=1 rec; monotonía; banda única sin cambio) · harness tplDemanda
+  nuevo+viejo · verify_all 8/8 + render 10/10 (en vivo). ANCLA ZMM con DEM-1: corriendo en
+  background (API PRSP degradado hoy); resultado se anota aquí al caer. PENDIENTE DISEÑO
+  SIGUIENTE (checkpoint aparte): conectar perfiles a derive_productos (resta oferta−demanda
+  POR PERFIL) + calibración U1 + captable (P1/P2).

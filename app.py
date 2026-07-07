@@ -10,6 +10,7 @@ import statistics
 import math
 import random
 import re
+import os
 import time as _time
 import datetime as _dt
 from typing import Optional, List, Dict, Any
@@ -1901,6 +1902,274 @@ def derive_segments(agebs: List[Dict], ft: List[Dict], tipo_vivienda: str = "ver
     return segments
 
 
+# ════════════ DEM-1 · SEGMENTOS POR PERFIL (diseño aprobado · docs/DISENO_DEM1.md) ════════════
+# Capacidad de pago por MENSUALIDAD (U3 corregido por Héctor: banca MX 30-35% pago-ingreso;
+# el 28% era convención de EUA). Tasa/plazo/enganche configurables por entorno.
+PTI_REF = float(os.environ.get("DATARIA_PTI_REF", "0.30"))          # central prudente (CONDUSEF)
+PTI_MAX = float(os.environ.get("DATARIA_PTI_MAX", "0.35"))          # techo banca MX
+TASA_HIPOTECARIA_REF = float(os.environ.get("DATARIA_TASA_HIP", "0.105"))   # CONFIRMAR vigente
+PLAZO_HIP_MESES = int(os.environ.get("DATARIA_PLAZO_HIP", "240"))
+ENGANCHE_REF = float(os.environ.get("DATARIA_ENGANCHE", "0.10"))
+# U1 · umbrales INICIALES a calibrar por sensibilidad en zonas ancla (no dogma)
+UMBRAL_PERFIL_PCT = float(os.environ.get("DATARIA_UMBRAL_PERFIL_PCT", "0.05"))
+UMBRAL_PERFIL_HOG = int(os.environ.get("DATARIA_UMBRAL_PERFIL_HOG", "300"))
+
+# Bandas de tamaño por ticket (M MXN) · FUENTE ÚNICA a nivel módulo (antes vivía duplicada
+# dentro de derive_productos_venta; mismos valores, cero cambio de comportamiento).
+_BANDA_TAMANO_TICKET = [
+    (1.5, 45, 58), (2.5, 52, 68), (3.5, 62, 80), (5.0, 70, 90), (8.0, 80, 110),
+    (12.0, 105, 140), (18.0, 135, 180), (25.0, 180, 260), (None, 260, 360),
+]
+
+
+def _banda_tamano_por_ticket(ticket_m) -> tuple:
+    """(m² min, m² max) del programa habitable para un ticket (M MXN)."""
+    if ticket_m is None:
+        return (70, 90)
+    for hi, lo_b, hi_b in _BANDA_TAMANO_TICKET:
+        if hi is None or ticket_m <= hi:
+            return (lo_b, hi_b)
+    return (260, 360)
+
+
+def _capacidad_pago_banda_M(ixh_mensual) -> tuple:
+    """(precio_min_M, precio_max_M) que el ingreso soporta por MENSUALIDAD:
+    pago = IXH × PTI; crédito = pago / factor(tasa, plazo); precio = crédito / (1−enganche).
+    Banda = [PTI 30%, PTI 35%]. Sin ingreso → (None, None) — jamás inventar."""
+    if not ixh_mensual or ixh_mensual <= 0:
+        return (None, None)
+    r = TASA_HIPOTECARIA_REF / 12.0
+    f = r / (1.0 - (1.0 + r) ** (-PLAZO_HIP_MESES))
+    def _precio(pti):
+        return (ixh_mensual * pti / f) / (1.0 - ENGANCHE_REF)
+    return (round(_precio(PTI_REF) / 1e6, 3), round(_precio(PTI_MAX) / 1e6, 3))
+
+
+def _gmm2_bic(vals: List[float]) -> Dict[str, Any]:
+    """Mezcla de 2 gaussianas 1-D (EM) vs 1 gaussiana, comparadas por BIC.
+    Detecta SUBMERCADOS de ingreso dentro de un NSE (zonas en transición).
+    SALVAGUARDA de integridad: n<30 → k=1 (con muestras chicas el GMM sobreajusta)."""
+    v = sorted(x for x in vals if x is not None and x > 0)
+    if len(v) < 30:
+        return {"k": 1, "medias": [round(statistics.median(v))] if v else [],
+                "corte": None, "motivo": "muestra_insuficiente"}
+    n = len(v)
+    mu = statistics.mean(v)
+    var = statistics.pvariance(v) or 1.0
+    ll1 = sum(-0.5 * math.log(2 * math.pi * var) - (x - mu) ** 2 / (2 * var) for x in v)
+    bic1 = -2 * ll1 + 2 * math.log(n)
+    m1, m2 = _percentil(v, 0.25), _percentil(v, 0.75)
+    s1 = s2 = math.sqrt(var) or 1.0
+    w = 0.5
+    for _ in range(80):
+        resp = []
+        for x in v:
+            p1 = w * math.exp(-(x - m1) ** 2 / (2 * s1 * s1)) / (s1 or 1e-9)
+            p2 = (1 - w) * math.exp(-(x - m2) ** 2 / (2 * s2 * s2)) / (s2 or 1e-9)
+            resp.append(p1 / (p1 + p2) if (p1 + p2) > 0 else 0.5)
+        W1 = sum(resp)
+        W2 = n - W1
+        if W1 < 1e-6 or W2 < 1e-6:
+            break
+        m1n = sum(r * x for r, x in zip(resp, v)) / W1
+        m2n = sum((1 - r) * x for r, x in zip(resp, v)) / W2
+        s1 = math.sqrt(max(sum(r * (x - m1n) ** 2 for r, x in zip(resp, v)) / W1, 1e-6))
+        s2 = math.sqrt(max(sum((1 - r) * (x - m2n) ** 2 for r, x in zip(resp, v)) / W2, 1e-6))
+        w = W1 / n
+        conv = abs(m1n - m1) + abs(m2n - m2)
+        m1, m2 = m1n, m2n
+        if conv < 1e-4:
+            break
+    ll2 = 0.0
+    for x in v:
+        p1 = w / (s1 * math.sqrt(2 * math.pi)) * math.exp(-(x - m1) ** 2 / (2 * s1 * s1))
+        p2 = (1 - w) / (s2 * math.sqrt(2 * math.pi)) * math.exp(-(x - m2) ** 2 / (2 * s2 * s2))
+        ll2 += math.log(max(p1 + p2, 1e-300))
+    bic2 = -2 * ll2 + 5 * math.log(n)
+    sep_rel = abs(m2 - m1) / (((m1 + m2) / 2) or 1e-9)
+    if bic2 < bic1 and sep_rel > 0.25:
+        return {"k": 2, "medias": sorted([round(m1), round(m2)]),
+                "corte": round((m1 + m2) / 2), "motivo": "bic_mejora"}
+    return {"k": 1, "medias": [round(mu)], "corte": None, "motivo": "bic_no_mejora"}
+
+
+# Programa base por cohorte de etapa de vida (U2 aprobado; la NORMATIVA manda en cajones)
+_COHORTES_DEM1 = {
+    "C1": {"label": "Joven solo",              "rec": 1, "cajones": 1.0},
+    "C2": {"label": "Pareja joven sin hijos",  "rec": 2, "cajones": 1.5},
+    "C3": {"label": "Familia en formación",    "rec": 2, "cajones": 1.5},
+    "C4": {"label": "Familia consolidada",     "rec": 3, "cajones": 2.0},
+    "C5": {"label": "Corresidentes",           "rec": 2, "cajones": 2.0},
+    "C6": {"label": "Adulto solo",             "rec": 1, "cajones": 1.0},
+    "C7": {"label": "Nido vacío",              "rec": 2, "cajones": 1.5},
+}
+
+
+def derive_segmentos_dem1(agebs: List[Dict], segments: List[Dict],
+                          personas_hogar: Optional[float] = None) -> Dict[str, Any]:
+    """DEM-1 · Matriz de PERFILES (cohorte × NSE × ingreso) con CONSERVACIÓN de la
+    demanda por bucket ya validada (los buckets se REPARTEN, no se alteran).
+    Ver docs/DISENO_DEM1.md. Todo dato real; asignaciones documentadas en fuente_masas."""
+    meta = {"metodo_masas": "asignacion_v1_piramide_tipologia",
+            "umbral": {"pct": UMBRAL_PERFIL_PCT, "hogares": UMBRAL_PERFIL_HOG},
+            "capacidad": {"pti_ref": PTI_REF, "pti_max": PTI_MAX,
+                          "tasa": TASA_HIPOTECARIA_REF, "plazo_m": PLAZO_HIP_MESES,
+                          "enganche": ENGANCHE_REF},
+            "gmm": {}, "conservacion": None,
+            "nota_captable": ("Mercado captable (zonas de origen + extranjeros) pendiente "
+                              "de P1/P2; solo se reporta demanda NATURAL. No se inventa."),
+            "version_modelo": "dem1_v1"}
+    if not agebs:
+        return {"segmentos": [], "meta": meta}
+
+    # ── 1 · Grupos por NSE (masas y pirámide reales por AGEB, agregadas por NSE) ──
+    grupos: Dict[str, Dict[str, Any]] = {}
+    for r in agebs:
+        nse = ageb_nse(r)
+        if not nse:
+            continue
+        g = grupos.setdefault(nse, {"hog": 0.0, "ixh": [], "unip": 0.0, "corres": 0.0,
+                                    "fam": 0.0, "ninos": 0.0, "adol": 0.0, "jovad": 0.0,
+                                    "consol": 0.0, "nest": 0.0, "n_agebs": 0})
+        h = _num(r.get("Hogares totales 2026")) or _num(r.get("Hogares totales 2020")) or 0
+        g["hog"] += h
+        g["n_agebs"] += 1
+        ixh = _ageb_ixh_mensual(r)
+        if ixh and h:
+            g["ixh"].append((ixh, h))
+        g["unip"] += _num(r.get("Hogares unipersonales")) or 0
+        g["corres"] += _num(r.get("Hogares corresidentes")) or 0
+        g["fam"] += _num(r.get("Hogares familiares totales")) or 0
+        g["ninos"] += _num(r.get("Niños")) or 0
+        g["adol"] += _num(r.get("Adolescentes")) or 0
+        g["jovad"] += _num(r.get("Jovenes_adultos")) or 0
+        g["consol"] += _num(r.get("Consolidados")) or 0
+        g["nest"] += _num(r.get("Nesters")) or 0
+    total_hog_zona = sum(g["hog"] for g in grupos.values()) or 1.0
+    umbral = min(UMBRAL_PERFIL_PCT * total_hog_zona, float(UMBRAL_PERFIL_HOG))
+
+    # ── 2 · Perfiles por NSE (con GMM de ingreso para submercados/transición) ──
+    perfiles: List[Dict[str, Any]] = []
+    for nse, g in grupos.items():
+        if g["hog"] <= 0:
+            continue
+        gmm = _gmm2_bic([x for x, _ in g["ixh"]])
+        meta["gmm"][nse] = gmm
+        if gmm["k"] == 2 and gmm.get("corte"):
+            bandas = [("bajo", [(x, h) for x, h in g["ixh"] if x <= gmm["corte"]]),
+                      ("alto", [(x, h) for x, h in g["ixh"] if x > gmm["corte"]])]
+        else:
+            bandas = [(None, g["ixh"])]
+        # Asignación de cohortes (v1 · documentada): unipersonales/corresidentes directos
+        # de tipología; familiares repartidos ∝ pirámide real. Sin tipología → degradación
+        # explícita (caso base familiar) con fuente marcada.
+        adultos = (g["jovad"] + g["consol"] + g["nest"]) or 1.0
+        unip, corres, fam = g["unip"], g["corres"], g["fam"]
+        fuente = "asignacion_v1_piramide_tipologia"
+        if (unip + corres + fam) <= 0:
+            fam = g["hog"]
+            fuente = "asignacion_v1_solo_piramide"
+        masas = {"C1": unip * (g["jovad"] / adultos),
+                 "C6": unip * (g["consol"] / adultos),
+                 "C5": corres}
+        c7u = unip * (g["nest"] / adultos)
+        fam_w = {"C2": g["jovad"] * 0.5, "C3": g["ninos"], "C4": g["adol"], "C7": g["nest"] * 0.5}
+        fw_tot = sum(fam_w.values()) or 1.0
+        for c, wv in fam_w.items():
+            masas[c] = masas.get(c, 0.0) + fam * (wv / fw_tot)
+        masas["C7"] = masas.get("C7", 0.0) + c7u
+        hog_con_masa = sum(masas.values()) or 1.0
+        escala = g["hog"] / hog_con_masa   # normalizar a hogares reales del grupo
+        for banda_tag, banda in bandas:
+            hb = sum(h for _, h in banda)
+            peso_banda = (hb / g["hog"]) if (g["hog"] and hb) else (1.0 if banda_tag is None else 0.0)
+            if peso_banda <= 0:
+                continue
+            ixh_med = statistics.median([x for x, _ in banda]) if banda else None
+            cap_lo, cap_hi = _capacidad_pago_banda_M(ixh_med)
+            for ck, cfg in _COHORTES_DEM1.items():
+                stock = masas.get(ck, 0.0) * escala * peso_banda
+                if stock <= 0:
+                    continue
+                n_rec = cfg["rec"]
+                if ck == "C5" and personas_hogar:
+                    n_rec = max(1, min(4, int(round(personas_hogar))))
+                perfiles.append({
+                    "perfil_id": f"{ck}-{nse}" + (f"-{banda_tag}" if banda_tag else ""),
+                    "cohorte": ck, "cohorte_label": cfg["label"],
+                    "nse": nse, "banda_ingreso_tag": banda_tag,
+                    "ixh_mediana": round(ixh_med) if ixh_med else None,
+                    "capacidad_pago_banda_M": [cap_lo, cap_hi],
+                    "hogares_stock": round(stock),
+                    "nuevas_fam_year": 0.0, "pool_activo": 0.0,
+                    "crecimiento_pct": NSE_TCA.get(nse, 0),
+                    "programa": {"rec": n_rec, "cajones": cfg["cajones"] + (0.5 if nse in ("A", "B") else 0.0)},
+                    "fuente_masas": fuente,
+                    "confianza": {"n_agebs": g["n_agebs"], "hogares_grupo": round(g["hog"])},
+                })
+
+    # ── 3 · Umbral U1 (calibrable): perfiles chicos se agregan al mayor de su NSE ──
+    grandes = [p for p in perfiles if p["hogares_stock"] >= umbral]
+    chicos = [p for p in perfiles if p["hogares_stock"] < umbral]
+    for p in chicos:
+        destino = max((q for q in grandes if q["nse"] == p["nse"]),
+                      key=lambda q: q["hogares_stock"], default=None)
+        if destino:
+            destino["hogares_stock"] += p["hogares_stock"]
+        else:
+            grandes.append(p)   # NSE sin perfil grande: se conserva (no perder masa)
+    perfiles = grandes
+
+    # ── 4 · Reparto de la demanda por bucket (CONSERVACIÓN de masa validada) ──
+    nf_buckets = 0.0
+    for s in (segments or []):
+        nf = s.get("nuevas_fam") or 0
+        pool = s.get("demanda_total") or 0
+        if nf <= 0 and pool <= 0:
+            continue
+        nf_buckets += nf
+        lo_m = (s.get("val_min") or 0) / 1e6
+        hi_m = (s.get("val_max") or 0) / 1e6
+        cand = [p for p in perfiles
+                if p["capacidad_pago_banda_M"][0] is not None
+                and p["capacidad_pago_banda_M"][1] >= lo_m
+                and p["capacidad_pago_banda_M"][0] < hi_m]
+        if not cand:
+            cand = [p for p in perfiles if p["nse"] == s.get("NSE")] or perfiles
+        masa_c = sum(p["hogares_stock"] for p in cand) or 1.0
+        for p in cand:
+            frac = p["hogares_stock"] / masa_c
+            p["nuevas_fam_year"] = round(p["nuevas_fam_year"] + nf * frac, 2)
+            p["pool_activo"] = round(p["pool_activo"] + pool * PCT_POOL_ACTIVO * frac, 2)
+            p.setdefault("buckets", {})
+            p["buckets"][s.get("bucket")] = round(p["buckets"].get(s.get("bucket"), 0) + nf * frac, 2)
+
+    # ── 5 · Producto por perfil: ticket de SU capacidad, m² del programa, $/m² derivado ──
+    for p in perfiles:
+        cap_lo, cap_hi = p["capacidad_pago_banda_M"]
+        p["bucket_principal"] = max(p.get("buckets", {}), key=p.get("buckets", {}).get) \
+            if p.get("buckets") else None
+        p["ticket_banda_M"] = [cap_lo, cap_hi]
+        if cap_lo and cap_hi:
+            n_rec = p["programa"]["rec"]
+            lo_b, hi_b = _banda_tamano_por_ticket((cap_lo + cap_hi) / 2)
+            area_min_fisica = (n_rec * _min_m2_recamara(p["nse"])) / _pct_area_recamaras(p["nse"])
+            m2_lo = max(lo_b, math.ceil(area_min_fisica))
+            m2_hi = max(hi_b, m2_lo + 5)
+            p["m2_banda"] = [m2_lo, m2_hi]
+            # Monotonía correcta: a mismo ticket, MÁS m² ⇒ MENOS $/m² (y viceversa)
+            p["pm2_derivado_banda"] = [round(cap_lo * 1e6 / m2_hi), round(cap_hi * 1e6 / m2_lo)]
+        else:
+            p["m2_banda"] = None
+            p["pm2_derivado_banda"] = None
+        p.pop("buckets", None)
+    perfiles.sort(key=lambda p: -p["hogares_stock"])
+    nf_perfiles = round(sum(p["nuevas_fam_year"] for p in perfiles), 1)
+    meta["conservacion"] = {"nf_buckets": round(nf_buckets, 1), "nf_perfiles": nf_perfiles,
+                            "ok": abs(nf_buckets - nf_perfiles) < max(1.0, nf_buckets * 0.01)}
+    return {"segmentos": perfiles, "meta": meta}
+
+
 def _extract_low(rango: str) -> Optional[float]:
     """De '$2,800,000-$3,399,999' o '8,333,333 - 10,000,000' → 2800000.0 (float)."""
     if not rango:
@@ -2880,17 +3149,10 @@ def derive_productos_venta(ft: List[Dict], segments: List[Dict], unidades_proyec
         #   ≤ 18.0M → 3 Rec · 135-180 m² (Premium Calzada: 3 Rec 160 m²)
         #   ≤ 25.0M → 3-4 Rec · 180-260 m² (Sky-Residence VP: $20M→240 m²)
         #   > 25.0M → 4 Rec PH · 260-360 m² (Grand PH VP: $25M+→320 m²)
+        # FUENTE ÚNICA: la tabla vive a nivel módulo (_BANDA_TAMANO_TICKET · DEM-1 la
+        # comparte). Mismos valores que la tabla local anterior — sin cambio de conducta.
         def _banda_tamano(ticket_m):
-            if ticket_m is None:   return (70, 90)
-            if ticket_m <= 1.5:    return (45, 58)
-            if ticket_m <= 2.5:    return (52, 68)
-            if ticket_m <= 3.5:    return (62, 80)
-            if ticket_m <= 5.0:    return (70, 90)
-            if ticket_m <= 8.0:    return (80, 110)
-            if ticket_m <= 12.0:   return (105, 140)
-            if ticket_m <= 18.0:   return (135, 180)
-            if ticket_m <= 25.0:   return (180, 260)
-            return (260, 360)
+            return _banda_tamano_por_ticket(ticket_m)
 
         # pm² OBSERVADO real de la oferta en el rango (si existe) — para anclar a la zona.
         PM2_VERTICAL_MIN = 20000
@@ -3844,6 +4106,9 @@ def assemble_zone_payload(req, profile, isocronas, resumen, ft, pagos, resumen_r
     # ZA-8 · Identidad universal del análisis (una sola vez por procesamiento)
     identidad = _analisis_identidad(getattr(req, "analisis_nombre", None), colonia, municipio, estado)
 
+    # DEM-1 · matriz de perfiles (cohorte × NSE × ingreso) con conservación por bucket
+    dem1 = derive_segmentos_dem1(agebs, segments, demografia.get("personas_hogar"))
+
     # Derivaciones de demanda/renta que dependen de varios insumos
     renta_segmentos = derive_renta_segmentos(segments, agebs)
     demanda_segmentos = derive_demanda_segmentos(segments, productos)
@@ -3904,6 +4169,9 @@ def assemble_zone_payload(req, profile, isocronas, resumen, ft, pagos, resumen_r
         "oferta_stats": res_com["oferta_stats"],
         "top_estrella": res_com["top_estrella"],
         "criterio_estrella": res_com["criterio_estrella"],
+        # DEM-1 · perfiles de demanda (cohorte × NSE × ingreso · conservación por bucket)
+        "segmentos_dem1": dem1["segmentos"],
+        "dem1_meta": dem1["meta"],
         "municipality": municipio,
         "label": _zone_label(producto_modo, kpis),
         "center": center, "zoom": 13,
@@ -4460,7 +4728,9 @@ SECTION_REGISTRY = {
                    "payload_keys": ["inventario_precio", "inventario_m2", "proyectos",
                                     "oferta_stats", "top_estrella", "resumen_comercial"]},
     "demanda":    {"label": "Demanda por perfil", "page_id": "page-demanda",
-                   "access_tier": "detalle", "payload_keys": ["demanda_segmentos", "mercado_meta", "civil"]},
+                   "access_tier": "detalle",
+                   "payload_keys": ["demanda_segmentos", "mercado_meta", "civil",
+                                    "segmentos_dem1", "dem1_meta"]},
     "producto":   {"label": "Producto óptimo (DPO)", "page_id": "page-producto",
                    "access_tier": "detalle", "payload_keys": ["productos", "sensibilidad_baseline"]},
     "renta":      {"label": "Mercado de renta", "page_id": "page-renta",
