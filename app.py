@@ -1907,7 +1907,7 @@ def derive_segments(agebs: List[Dict], ft: List[Dict], tipo_vivienda: str = "ver
 # el 28% era convención de EUA). Tasa/plazo/enganche configurables por entorno.
 PTI_REF = float(os.environ.get("DATARIA_PTI_REF", "0.30"))          # central prudente (CONDUSEF)
 PTI_MAX = float(os.environ.get("DATARIA_PTI_MAX", "0.35"))          # techo banca MX
-TASA_HIPOTECARIA_REF = float(os.environ.get("DATARIA_TASA_HIP", "0.105"))   # CONFIRMAR vigente
+TASA_HIPOTECARIA_REF = float(os.environ.get("DATARIA_TASA_HIP", "0.091"))   # 9.1% · CONFIRMADA por Héctor (7 jul 2026) · full backend, el front jamás la ajusta
 PLAZO_HIP_MESES = int(os.environ.get("DATARIA_PLAZO_HIP", "240"))
 ENGANCHE_REF = float(os.environ.get("DATARIA_ENGANCHE", "0.10"))
 # U1 · umbrales INICIALES a calibrar por sensibilidad en zonas ancla (no dogma)
@@ -3639,6 +3639,86 @@ from typing import Optional, List, Dict, Any
 _pm2v = _pm2
 
 
+# ════════════ PROD-PERFIL · Resta oferta−demanda POR PERFIL (DEM-1 → Producto) ════════════
+# Diseño (aprobado como parte del GO "avanza con todo"): para cada perfil de DEM-1 se
+# identifica la OFERTA que lo atiende (tipologías cuyo programa de recámaras coincide y
+# cuyo ticket cae en su banda de capacidad de pago), y se hace la resta FLUJO CONTRA FLUJO
+# (misma regla validada de absorción): demanda del perfil (nuevas_fam + pool)/12 menos
+# Σ Abs_Demanda de las tipologías activas que lo atienden → demanda INSATISFECHA mensual.
+# El producto SUGERIDO por perfil ancla su $/m² dentro de la percepción de valor (ZA-6):
+# ajusta el m² dentro de la banda del programa hasta que ticket/m² caiga en el núcleo
+# P25-P75 de la zona (funcional primero, comprable después). Universal para todos los usos.
+def derive_producto_perfil(perfiles: List[Dict], ft: List[Dict],
+                           percepcion_detalle: Optional[Dict] = None) -> Dict[str, Any]:
+    """Enriquece cada perfil DEM-1 con: oferta que lo atiende, insatisfecha y sugerido."""
+    rows = _tipologias_planas(ft)
+    nucleo = ((percepcion_detalle or {}).get("banda_nucleo") or [None, None])
+    p25, p75 = (nucleo + [None, None])[:2]
+    resumen = {"perfiles_desatendidos": 0, "perfiles_equilibrados": 0, "perfiles_sobreofertados": 0}
+    for p in (perfiles or []):
+        cap = p.get("capacidad_pago_banda_M") or [None, None]
+        n_rec = (p.get("programa") or {}).get("rec")
+        if cap[0] is None or n_rec is None:
+            p["oferta_perfil"] = None
+            p["insatisfecha_mensual"] = None
+            p["status_perfil"] = "sin_capacidad_medible"
+            p["producto_sugerido"] = None
+            continue
+        # Oferta que ATIENDE al perfil: mismo programa (±0 rec; C5 acepta ±1 por diversidad
+        # de corresidentes) y ticket dentro de su banda de capacidad.
+        tol_rec = 1 if p.get("cohorte") == "C5" else 0
+        atiende = [t for t in rows
+                   if t.get("precio") and cap[0] <= t["precio"] / 1e6 <= cap[1]
+                   and t.get("rec") is not None and abs(t["rec"] - n_rec) <= tol_rec]
+        activas = [t for t in atiende if (t.get("disp") or 0) > 0]
+        oferta_flujo = round(sum(t.get("abs") or 0 for t in activas), 2)
+        inventario = int(sum(t.get("disp") or 0 for t in atiende))
+        demanda_mensual = round(((p.get("nuevas_fam_year") or 0) + (p.get("pool_activo") or 0)) / 12.0, 2)
+        insat = round(demanda_mensual - oferta_flujo, 2)
+        p["oferta_perfil"] = {"n_tipologias": len(atiende), "n_activas": len(activas),
+                              "inventario_disp": inventario, "oferta_flujo_mensual": oferta_flujo}
+        p["demanda_mensual"] = demanda_mensual
+        p["insatisfecha_mensual"] = insat
+        if demanda_mensual <= 0 and oferta_flujo <= 0:
+            p["status_perfil"] = "sin_movimiento"
+        elif insat > max(0.5, demanda_mensual * 0.25):
+            p["status_perfil"] = "desatendido"
+            resumen["perfiles_desatendidos"] += 1
+        elif insat < -max(0.5, demanda_mensual * 0.25):
+            p["status_perfil"] = "sobreofertado"
+            resumen["perfiles_sobreofertados"] += 1
+        else:
+            p["status_perfil"] = "equilibrado"
+            resumen["perfiles_equilibrados"] += 1
+        # PRODUCTO SUGERIDO: ticket central de SU capacidad; m² dentro de la banda del
+        # programa ajustado para que el $/m² caiga en el núcleo de percepción (si existe).
+        ticket_obj = round((cap[0] + cap[1]) / 2, 2)
+        m2b = p.get("m2_banda") or list(_banda_tamano_por_ticket(ticket_obj))
+        m2_lo, m2_hi = m2b[0], m2b[1]
+        m2_obj = round((m2_lo + m2_hi) / 2)
+        pm2_obj = round(ticket_obj * 1e6 / m2_obj)
+        ajuste = None
+        if p25 and p75:
+            if pm2_obj > p75:      # caro para la zona → crecer m² dentro de banda
+                m2_obj = min(m2_hi, math.ceil(ticket_obj * 1e6 / p75))
+                pm2_obj = round(ticket_obj * 1e6 / m2_obj)
+                ajuste = "m2_arriba_para_entrar_al_nucleo"
+            elif pm2_obj < p25:    # barato → compactar m² dentro de banda
+                m2_obj = max(m2_lo, math.floor(ticket_obj * 1e6 / p25))
+                pm2_obj = round(ticket_obj * 1e6 / m2_obj)
+                ajuste = "m2_abajo_para_entrar_al_nucleo"
+        en_nucleo = bool(p25 and p75 and p25 <= pm2_obj <= p75)
+        p["producto_sugerido"] = {
+            "rec": n_rec, "cajones": (p.get("programa") or {}).get("cajones"),
+            "m2": int(m2_obj), "ticket_M": ticket_obj, "pm2": pm2_obj,
+            "en_nucleo_percepcion": en_nucleo, "ajuste": ajuste,
+        }
+    return {"perfiles": perfiles, "resumen": resumen,
+            "nota": ("Resta oferta−demanda por PERFIL (flujo contra flujo, misma regla "
+                     "validada). Producto sugerido anclado al núcleo de percepción de la "
+                     "zona: funcional primero, comprable después.")}
+
+
 # ════════════ F-C · RESUMEN COMERCIAL (RES-1 parcial · RES-3 · RES-5) ════════════
 EVIDENCIA_MIN_ESTRELLA = 3   # vendidas mínimas para calificar como producto estrella
 
@@ -4106,8 +4186,15 @@ def assemble_zone_payload(req, profile, isocronas, resumen, ft, pagos, resumen_r
     # ZA-8 · Identidad universal del análisis (una sola vez por procesamiento)
     identidad = _analisis_identidad(getattr(req, "analisis_nombre", None), colonia, municipio, estado)
 
+    # ZA-6 · percepción detallada (se usa en _zona_analisis Y como ancla de PROD-PERFIL)
+    pd_detalle = derive_percepcion_detalle(perception, segments, demografia, productos)
+
     # DEM-1 · matriz de perfiles (cohorte × NSE × ingreso) con conservación por bucket
     dem1 = derive_segmentos_dem1(agebs, segments, demografia.get("personas_hogar"))
+    # PROD-PERFIL · resta oferta−demanda por perfil + producto sugerido anclado a percepción
+    prod_perfil = derive_producto_perfil(dem1["segmentos"], ft, pd_detalle)
+    dem1["meta"]["producto_perfil"] = {"resumen": prod_perfil["resumen"],
+                                       "nota": prod_perfil["nota"]}
 
     # Derivaciones de demanda/renta que dependen de varios insumos
     renta_segmentos = derive_renta_segmentos(segments, agebs)
@@ -4228,7 +4315,7 @@ def assemble_zone_payload(req, profile, isocronas, resumen, ft, pagos, resumen_r
             },
             "nse_barrier": _nse_barrier_info(agebs, agebs_geo),
             # ZA-6 · delimitación de percepción de valor + mercado meta (bandas robustas)
-            "percepcion_detalle": derive_percepcion_detalle(perception, segments, demografia, productos),
+            "percepcion_detalle": pd_detalle,
             "agebs_geo": agebs_geo,
         },
         "_vars": build_analysis_vars(req, profile, isocronas, perception, demografia,
@@ -5602,6 +5689,175 @@ async def zona_reverse(lat: float, lng: float):
             out["ok"] = False
             out["error"] = str(e)[:120]
     return out
+
+
+# ════════════ INV-3 · FICHAS DE INVENTARIO (PDF hoja carta para bancos) ════════════
+class FichaInventarioRequest(BaseModel):
+    analisis_key: str
+    nombre_proyecto: str            # lo captura el usuario (portada)
+    banco: str
+    desarrollador: str
+    proyecto: Optional[str] = None  # opcional: limitar a UN proyecto del inventario
+
+
+def _ficha_pdf_bytes(payload: Dict[str, Any], req: "FichaInventarioRequest") -> bytes:
+    """Construye el PDF (carta) con guías Dataria: portada, resumen de zona, una sección
+    por proyecto y UNA HOJA POR PRODUCTO. Plusvalías por periodo → 'próximamente' (P3)."""
+    from io import BytesIO
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.units import mm
+    from reportlab.lib import colors
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table,
+                                    TableStyle, PageBreak)
+    INK = colors.HexColor("#0B1020")
+    AZURE = colors.HexColor("#0540F2")
+    PULSE = colors.HexColor("#00B564")
+    HAIR = colors.HexColor("#C9CCD6")
+    PAPER = colors.HexColor("#F0F1F4")
+    st_t = ParagraphStyle("t", fontName="Helvetica-Bold", fontSize=22, textColor=INK, spaceAfter=6)
+    st_h = ParagraphStyle("h", fontName="Helvetica-Bold", fontSize=13, textColor=AZURE, spaceAfter=4)
+    st_b = ParagraphStyle("b", fontName="Helvetica", fontSize=9, textColor=INK, leading=12)
+    st_s = ParagraphStyle("s", fontName="Helvetica", fontSize=8, textColor=colors.HexColor("#5A6072"))
+    zd = payload.get("zone_data") or {}
+    rc = zd.get("resumen_comercial") or {}
+    os_ = zd.get("oferta_stats") or {}
+    typ = zd.get("_typologies") or {}
+    idstr = zd.get("analisis_id_str") or ""
+    fmt = lambda v, p="$", s="": (p + f"{v:,.0f}" + s) if isinstance(v, (int, float)) else "—"
+    prox = "próximamente (serie temporal en integración)"
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=letter, leftMargin=18 * mm, rightMargin=18 * mm,
+                            topMargin=18 * mm, bottomMargin=16 * mm,
+                            title=f"Fichas de inventario · {req.nombre_proyecto}")
+    E = []
+    # ── PORTADA ──
+    E.append(Spacer(1, 40 * mm))
+    E.append(Paragraph("FICHAS DE INVENTARIO", st_t))
+    E.append(Paragraph(req.nombre_proyecto, ParagraphStyle("p2", parent=st_t, fontSize=17, textColor=AZURE)))
+    E.append(Spacer(1, 8 * mm))
+    port = Table([["Banco", req.banco], ["Desarrollador", req.desarrollador],
+                  ["Análisis", idstr], ["Zona", f"{zd.get('name') or ''} · {zd.get('subtitle') or ''}"],
+                  ["Fecha", zd.get("analisis_fecha") or ""]], colWidths=[35 * mm, 130 * mm])
+    port.setStyle(TableStyle([("FONT", (0, 0), (-1, -1), "Helvetica", 10),
+                              ("FONT", (0, 0), (0, -1), "Helvetica-Bold", 10),
+                              ("TEXTCOLOR", (0, 0), (0, -1), AZURE),
+                              ("LINEBELOW", (0, 0), (-1, -1), 0.4, HAIR),
+                              ("BOTTOMPADDING", (0, 0), (-1, -1), 6)]))
+    E.append(port)
+    E.append(Spacer(1, 60 * mm))
+    E.append(Paragraph("Elaborado: Dataria Team · San Pedro Garza García, Nuevo León y "
+                       "Guadalajara, Jalisco · Hecho en México", st_s))
+    E.append(PageBreak())
+    # ── RESUMEN DE ZONA (medianas duales + top estrella) ──
+    E.append(Paragraph("Resumen del corredor · métricas robustas", st_h))
+    def _st(k):
+        d = os_.get(k) or {}
+        return f"{fmt(d.get('mediana'))} · núcleo {fmt(d.get('p25'))}–{fmt(d.get('p75'))} (n={d.get('n', 0)})"
+    res_t = Table([["Métrica", "Todo el inventario", "Solo disponible"],
+                   ["$/m² (mediana)", _st("pm2_total"), _st("pm2_disponible")],
+                   ["Precio M (mediana)", _st("precio_M_total"), _st("precio_M_disponible")],
+                   ["m² (mediana)", _st("m2_total"), _st("m2_disponible")],
+                   ["Absorción un/mes", _st("abs_total"), _st("abs_disponible")]],
+                  colWidths=[38 * mm, 66 * mm, 66 * mm])
+    res_t.setStyle(TableStyle([("FONT", (0, 0), (-1, -1), "Helvetica", 8),
+                               ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 8),
+                               ("BACKGROUND", (0, 0), (-1, 0), INK),
+                               ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                               ("GRID", (0, 0), (-1, -1), 0.4, HAIR),
+                               ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, PAPER])]))
+    E.append(res_t)
+    E.append(Spacer(1, 5 * mm))
+    top = (zd.get("top_estrella") or {}).get("zona") or []
+    if top:
+        E.append(Paragraph("Top 3 · producto estrella de la zona", st_h))
+        for i, e in enumerate(top, 1):
+            E.append(Paragraph(f"★ {i}. {e.get('proyecto')} · {e.get('rec')} rec · {e.get('m2')} m² · "
+                               f"${e.get('precio_M')}M · {fmt(e.get('pm2'))}/m² · desplazado "
+                               f"{e.get('desplazamiento_pct')}% · {e.get('abs') or 's/'} un/mes", st_b))
+        E.append(Paragraph(zd.get("criterio_estrella") or "", st_s))
+    E.append(Paragraph(f"Plusvalía por periodo (mes/trimestre/histórica): {prox}.", st_s))
+    E.append(PageBreak())
+    # ── SECCIÓN POR PROYECTO + HOJA POR PRODUCTO ──
+    nombres = [req.proyecto] if (req.proyecto and req.proyecto in typ) else sorted(typ.keys())
+    for nombre in nombres:
+        r = rc.get(nombre) or {}
+        E.append(Paragraph(nombre, st_t))
+        E.append(Paragraph(f"Estatus: {(r.get('estatus') or 'sin dato').upper()} · desplazado "
+                           f"{r.get('desplazamiento_pct') if r.get('desplazamiento_pct') is not None else '—'}% · "
+                           f"$/m² mediana {fmt(r.get('pm2_mediana'))} (disp {fmt(r.get('pm2_mediana_disp'))}) · "
+                           f"tamaño mediana {r.get('m2_mediana') or '—'} m² · "
+                           f"{r.get('n_tipologias') or len(typ.get(nombre) or [])} tipologías", st_b))
+        est = r.get("estrella")
+        if est:
+            E.append(Paragraph(f"★ Producto estrella: {est.get('rec')} rec · {est.get('m2')} m² · "
+                               f"${est.get('precio_M')}M · {fmt(est.get('pm2'))}/m² · "
+                               f"desplazado {est.get('desplazamiento_pct')}%", st_b))
+        E.append(Paragraph(f"Desarrollador: {req.desarrollador if req.proyecto == nombre else 'próximamente (dato en integración con la base)'}", st_s))
+        E.append(PageBreak())
+        for t in (typ.get(nombre) or []):
+            E.append(Paragraph(f"{nombre} · Tipología {t.get('tipo')}", st_h))
+            tot = (t.get("unid_vend") or 0) + (t.get("unid_disp") or 0)
+            despl = round((t.get("unid_vend") or 0) / tot * 100, 1) if tot else None
+            filas = [
+                ["Programa (recámaras)", str(t.get("rec") if t.get("rec") is not None else "—")],
+                ["Área privativa", f"{t.get('area_priv')} m²" if t.get("area_priv") else "—"],
+                ["Área total", f"{t.get('area_total')} m²" if t.get("area_total") else "—"],
+                ["Terraza", str(t.get("area_terr"))],
+                ["Cajones de estacionamiento", str(t.get("cajones"))],
+                ["Precio por unidad", fmt(t.get("precio_ud"))],
+                ["Precio por m²", fmt(t.get("precio_m2"), "$", "/m²")],
+                ["Unidades (tot/vend/disp)", f"{t.get('unid_total') or '—'} / {t.get('unid_vend') or 0} / {t.get('unid_disp') or 0}"],
+                ["% desplazado", f"{despl}%" if despl is not None else "—"],
+                ["Absorción observada", f"{t.get('abs')} un/mes" if t.get("abs") else "—"],
+                ["Calidad / equipamiento", "próximamente (dato en integración con la base)"],
+                ["Δ precio vs periodo anterior", prox],
+                ["Plusvalía mes / trimestre / histórica", prox],
+            ]
+            tt = Table(filas, colWidths=[62 * mm, 105 * mm])
+            tt.setStyle(TableStyle([("FONT", (0, 0), (-1, -1), "Helvetica", 9),
+                                    ("FONT", (0, 0), (0, -1), "Helvetica-Bold", 9),
+                                    ("TEXTCOLOR", (0, 0), (0, -1), INK),
+                                    ("GRID", (0, 0), (-1, -1), 0.4, HAIR),
+                                    ("ROWBACKGROUNDS", (0, 0), (-1, -1), [colors.white, PAPER]),
+                                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5)]))
+            E.append(tt)
+            E.append(Spacer(1, 4 * mm))
+            E.append(Paragraph("Fuente: base ArcGIS Prosperia · dato vigente del periodo más "
+                               "reciente expuesto por el API.", st_s))
+            E.append(PageBreak())
+    def _pie(canv, _doc):
+        canv.saveState()
+        canv.setStrokeColor(HAIR)
+        canv.line(18 * mm, 12 * mm, letter[0] - 18 * mm, 12 * mm)
+        canv.setFont("Helvetica", 7)
+        canv.setFillColor(colors.HexColor("#5A6072"))
+        canv.drawString(18 * mm, 8.5 * mm, f"Dataria · {idstr}")
+        canv.drawRightString(letter[0] - 18 * mm, 8.5 * mm, f"Página {canv.getPageNumber()}")
+        canv.setFillColor(PULSE)
+        canv.rect(18 * mm, 13.5 * mm, 10 * mm, 0.8 * mm, stroke=0, fill=1)
+        canv.restoreState()
+    doc.build(E, onFirstPage=_pie, onLaterPages=_pie)
+    return buf.getvalue()
+
+
+@app.post("/api/zona/ficha_inventario")
+def ficha_inventario(req: FichaInventarioRequest):
+    """INV-3 · Genera el PDF de fichas (hoja carta) desde el análisis en caché."""
+    from fastapi import Response as _Resp
+    payload = _analysis_cache_get(req.analisis_key)
+    if not payload:
+        return {"ok": False, "error": "Análisis no encontrado en caché · reprocesa la zona"}
+    try:
+        pdf = _ficha_pdf_bytes(payload, req)
+    except ImportError:
+        return {"ok": False, "error": "reportlab no instalado en el servidor (requirements.txt)"}
+    except Exception as e:
+        return {"ok": False, "error": f"Error generando PDF: {str(e)[:150]}"}
+    nombre = re.sub(r"[^\w\-]+", "_", req.nombre_proyecto)[:40] or "ficha"
+    return _Resp(content=pdf, media_type="application/pdf",
+                 headers={"Content-Disposition": f'attachment; filename="fichas_{nombre}.pdf"'})
 
 
 class CuentaCreate(BaseModel):

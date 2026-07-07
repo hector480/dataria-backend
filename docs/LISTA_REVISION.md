@@ -1038,3 +1038,32 @@ VALIDADO: py_compile · node --check · unitarias (capacidad exacta a 10.5%: $30
   background (API PRSP degradado hoy); resultado se anota aquí al caer. PENDIENTE DISEÑO
   SIGUIENTE (checkpoint aparte): conectar perfiles a derive_productos (resta oferta−demanda
   POR PERFIL) + calibración U1 + captable (P1/P2).
+
+## LOTE PRE-PUSH. Tasa 9.1% + PROD-PERFIL + INV-3 + "próximamente" — [x] HECHO (7 jul 2026)
+DECISIONES DE HÉCTOR APLICADAS: avanzar sin esperar el API (donde falte la ruta → marcador
+"Próximamente · dato en integración con la base" en el front, NUNCA N/A mudo); tasa
+hipotecaria 9.1% CONFIRMADA (TASA_HIPOTECARIA_REF=0.091, full backend); un solo push al
+final para probar todo junto.
+1) TASA 9.1%: capacidad IXH $30k → $1.104M–$1.287M (3.07–3.58× ingreso anual).
+2) PRÓXIMAMENTE (ficha de proyecto): desarrollador, descripción, mercado meta, cercanías,
+   inicio venta, entrega/acabados, amenidades y plusvalía mes/trim/hist (serie temporal).
+3) PROD-PERFIL (derive_producto_perfil): oferta que atiende a cada perfil (mismo programa
+   ±0 rec, C5 ±1; ticket dentro de SU capacidad) → resta FLUJO CONTRA FLUJO por perfil
+   (misma regla validada) → insatisfecha_mensual + status_perfil → PRODUCTO SUGERIDO con
+   ajuste de m² dentro de banda hasta entrar al núcleo P25-P75 de percepción (funcional →
+   comprable). Front: columnas nuevas en la matriz DEM-1 (Demanda) + tarjeta "Demanda
+   insatisfecha por PERFIL" con top 3 desatendidos en Producto.
+   TEST: C4 sin oferta → desatendido 11.0 un/mes, sugerido 3R·66m²·$18,182/m² DENTRO del
+   núcleo (ajuste automático); C1 con oferta activa → atendido con resta exacta.
+4) INV-3 FICHAS PDF (POST /api/zona/ficha_inventario · reportlab): carta, guías Dataria
+   (ink/azure/pulse/paper/hair, Helvetica como sustituto de Geist), portada con
+   banco/desarrollador/proyecto capturados en ventana emergente, resumen robusto dual,
+   sección por proyecto (estatus/medianas/estrella), UNA HOJA POR PRODUCTO (programa,
+   áreas, cajones, precios, desplazado, absorción; calidad/Δprecio/plusvalías →
+   próximamente), pie con identidad ZA-8 y paginado. reportlab==4.5.1 en requirements.txt
+   (CRÍTICO para el deploy de Render). TEST end-to-end: PDF válido desde caché sintética;
+   error de caché manejado.
+VALIDADO: py_compile · node --check · unitarias (tasa, PROD-PERFIL 2 casos, PDF e2e) ·
+harness (Demanda con status/insatisfecha/✓núcleo, Producto card, Inventario botón,
+retrocompatible) · verify_all 8/8 + render 10/10 EN VIVO. Gates del API sin cambio
+(dump/interactive/GDL/ancla ZMM-DEM1: reintentos en curso, se anotan al caer).

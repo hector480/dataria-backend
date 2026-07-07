@@ -157,3 +157,14 @@ hotel (prefijo por uso).
 | `dem1_meta` | `{metodo_masas, umbral{pct,hogares}, capacidad{pti_ref,pti_max,tasa,plazo_m,enganche}, gmm{nse:{k,medias,corte,motivo}}, conservacion{nf_buckets,nf_perfiles,ok}, nota_captable, version_modelo}` |
 | Constantes | `PTI_REF=0.30 · PTI_MAX=0.35 (banca MX · U3) · TASA_HIPOTECARIA_REF=0.105 (CONFIRMAR vigente) · PLAZO_HIP_MESES=240 · ENGANCHE_REF=0.10 · UMBRAL_PERFIL_PCT=0.05 · UMBRAL_PERFIL_HOG=300 (U1: calibrar)` — todas configurables por entorno |
 | `_BANDA_TAMANO_TICKET` / `_banda_tamano_por_ticket()` | FUENTE ÚNICA de bandas de tamaño por ticket (antes duplicada dentro de derive_productos_venta; mismos valores) |
+
+## 8d. PROD-PERFIL + INV-3 · Variables nuevas (aditivas)
+| Variable | Qué es |
+|---|---|
+| `segmentos_dem1[i].oferta_perfil{n_tipologias,n_activas,inventario_disp,oferta_flujo_mensual}` | Oferta que ATIENDE al perfil (mismo programa, ticket en su capacidad) |
+| `segmentos_dem1[i].demanda_mensual / insatisfecha_mensual / status_perfil` | Resta flujo contra flujo por perfil (desatendido/equilibrado/sobreofertado/sin_movimiento) |
+| `segmentos_dem1[i].producto_sugerido{rec,cajones,m2,ticket_M,pm2,en_nucleo_percepcion,ajuste}` | Producto por perfil anclado al núcleo de percepción (funcional → comprable) |
+| `dem1_meta.producto_perfil{resumen,nota}` | Conteo de perfiles por status |
+| `TASA_HIPOTECARIA_REF = 0.091` | 9.1% CONFIRMADA por Héctor · full backend, jamás ajustable en front |
+| `POST /api/zona/ficha_inventario` | INV-3 · PDF carta para bancos (portada banco/desarrollador, resumen robusto, sección por proyecto, hoja por producto; plusvalías "próximamente" hasta P3). reportlab==4.5.1 agregado a requirements.txt |
+| Marcadores "próximamente" | Ficha de proyecto: desarrollador, descripción, mercado meta, cercanías, inicio venta, entrega/acabados, amenidades y plusvalías por periodo — el dato existe en la base; la ruta del API está en tickets P1/P3 |

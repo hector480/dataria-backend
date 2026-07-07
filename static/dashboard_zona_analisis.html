@@ -1854,6 +1854,26 @@ function tplInventario(z) {
       </div>
     </div>
 
+    <!-- INV-3 · FICHAS DE INVENTARIO PDF (reporte para bancos · generación 100% backend) -->
+    <div class="card" style="margin-bottom:16px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+        <div>
+          <div class="card-title">Fichas de inventario · reporte para bancos (PDF carta)</div>
+          <div style="font-size:11px;color:var(--t2);margin-top:2px;">Portada con banco y desarrollador · resumen del corredor · una sección por proyecto · una hoja por producto · plusvalías por periodo: próximamente (serie temporal)</div>
+        </div>
+        <button class="mf-btn" onclick="fichaPdfOpen()">📄 Generar fichas PDF</button>
+      </div>
+      <div id="ficha-modal" style="display:none;margin-top:12px;padding:12px;border:1px solid var(--hair,#C9CCD6);border-radius:8px;">
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+          <label style="font-size:11px;color:var(--t2);">Nombre del proyecto (portada)<br><input class="za-in" id="ficha-nombre" style="width:220px;" placeholder="Torre Centro 01"></label>
+          <label style="font-size:11px;color:var(--t2);">Banco<br><input class="za-in" id="ficha-banco" style="width:180px;" placeholder="Banco ..."></label>
+          <label style="font-size:11px;color:var(--t2);">Desarrollador<br><input class="za-in" id="ficha-dev" style="width:180px;" placeholder="Desarrolladora ..."></label>
+          <button class="mf-btn" onclick="fichaPdfRun()">Generar y descargar</button>
+        </div>
+        <div id="ficha-status" style="font-size:11px;color:var(--t2);margin-top:8px;"></div>
+      </div>
+    </div>
+
     <!-- INV-4 · CORREDOR A LA MEDIDA (rangos manuales · cálculo 100% backend) -->
     <div class="card" style="margin-bottom:16px;">
       <div class="card-title">Corredor a la medida · define tus rangos</div>
@@ -2482,6 +2502,9 @@ function openProjectSheet(projName) {
   const typs = TYPOLOGIES[projName] || [];
   const proj = ZONE_DATA[CURRENT_ZONE].proyectos.find(p => p.name === projName) || {};
   const color = meta.render_color || '#3d5a80';
+  // INV-5/6 · estos campos EXISTEN en la base ArcGIS; la ruta del API está en integración
+  // (ticket con el equipo de datos). Mientras: marcador explícito, nunca N/A mudo.
+  const PROX = '<span style="color:var(--amber,#F59E0B);font-size:12px;">Próximamente · dato en integración con la base</span>';
 
   // Build typology cards with synthetic floor plans (SVG)
   const typCards = typs.map((t, idx) => {
@@ -2540,7 +2563,7 @@ function openProjectSheet(projName) {
         <rect x="650" y="120" width="90" height="180" fill="url(#bldg-${projName.replace(/[^a-z]/gi,'')})"/>
       </svg>
       <div style="position:relative;z-index:2;">
-        <div style="font-size:12px;color:rgba(255,255,255,.8);text-transform:uppercase;letter-spacing:1.5px;font-weight:600;">${meta.developer || 'Desarrollador'}</div>
+        <div style="font-size:12px;color:rgba(255,255,255,.8);text-transform:uppercase;letter-spacing:1.5px;font-weight:600;">${meta.developer || 'Desarrollador: próximamente'}</div>
         <div style="font-size:32px;color:#fff;font-weight:800;letter-spacing:-.5px;margin-top:4px;">${projName}</div>
         <div style="font-size:13px;color:rgba(255,255,255,.85);margin-top:6px;">${ZONE_DATA[CURRENT_ZONE].municipality}</div>
       </div>
@@ -2561,20 +2584,21 @@ function openProjectSheet(projName) {
         <div style="display:grid;grid-template-columns:2fr 1fr;gap:24px;margin-top:24px;">
           <div>
             <div style="font-size:12px;color:var(--bronze-light);text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:8px;">Descripción</div>
-            <div style="font-size:13px;color:var(--t1);line-height:1.7;margin-bottom:18px;">${meta.description || 'N/D'}</div>
+            <div style="font-size:13px;color:var(--t1);line-height:1.7;margin-bottom:18px;">${meta.description || PROX}</div>
 
             <div style="font-size:12px;color:var(--bronze-light);text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:8px;">Mercado meta</div>
-            <div style="font-size:13px;color:var(--t1);line-height:1.7;margin-bottom:18px;">${meta.target || 'N/D'}</div>
+            <div style="font-size:13px;color:var(--t1);line-height:1.7;margin-bottom:18px;">${meta.target || PROX}</div>
 
             <div style="font-size:12px;color:var(--bronze-light);text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:8px;">Cercanías</div>
-            <div style="font-size:13px;color:var(--t2);line-height:1.7;">${meta.cercanías || 'N/D'}</div>
+            <div style="font-size:13px;color:var(--t2);line-height:1.7;">${meta.cercanías || PROX}</div>
           </div>
           <div>
             <div style="background:var(--navy-3);border-radius:12px;padding:16px;border:1px solid var(--b0);">
               <div style="font-size:12px;color:var(--bronze-light);text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:12px;">Datos clave</div>
               <div style="display:flex;flex-direction:column;gap:8px;font-size:12px;">
-                <div style="display:flex;justify-content:space-between;"><span style="color:var(--t3);">Inicio venta</span><span style="color:var(--t1);font-family:'JetBrains Mono',monospace;">${meta.inicio_venta || 'N/A'}</span></div>
-                <div style="display:flex;justify-content:space-between;"><span style="color:var(--t3);">Entrega</span><span style="color:var(--t1);font-family:'JetBrains Mono',monospace;">${meta.entrega || 'N/A'}</span></div>
+                <div style="display:flex;justify-content:space-between;"><span style="color:var(--t3);">Inicio venta</span><span style="color:var(--amber,#F59E0B);font-size:11px;">${meta.inicio_venta || 'próximamente'}</span></div>
+                <div style="display:flex;justify-content:space-between;"><span style="color:var(--t3);">Entrega / acabados</span><span style="color:var(--amber,#F59E0B);font-size:11px;">${meta.entrega || 'próximamente'}</span></div>
+                <div style="display:flex;justify-content:space-between;"><span style="color:var(--t3);">Plusvalía mes/trim/hist</span><span style="color:var(--amber,#F59E0B);font-size:11px;">próximamente (serie temporal)</span></div>
                 <div style="display:flex;justify-content:space-between;"><span style="color:var(--t3);">Total unidades</span><span style="color:var(--t1);font-family:'JetBrains Mono',monospace;">${proj.total || 0}</span></div>
                 <div style="display:flex;justify-content:space-between;"><span style="color:var(--t3);">Avance comercial</span><span style="color:var(--t1);font-family:'JetBrains Mono',monospace;">${proj.preventa?'PREV':(proj.avance||0)+'%'}</span></div>
                 <div style="display:flex;justify-content:space-between;"><span style="color:var(--t3);">Absorción</span><span style="color:var(--green);font-family:'JetBrains Mono',monospace;font-weight:600;">${proj.preventa?'—':((proj.abs||0).toFixed(2)+' un/mes')}</span></div>
@@ -2589,7 +2613,7 @@ function openProjectSheet(projName) {
         <div style="margin-top:24px;">
           <div style="font-size:12px;color:var(--bronze-light);text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:10px;">Amenidades</div>
           <div style="display:flex;flex-wrap:wrap;gap:6px;">
-            ${(meta.amenidades || []).map(a => `<span style="background:var(--navy-3);border:1px solid var(--b0);color:var(--t1);font-size:12px;padding:5px 11px;border-radius:14px;">${a}</span>`).join('')}
+            ${(meta.amenidades && meta.amenidades.length) ? meta.amenidades.map(a => `<span style="background:var(--navy-3);border:1px solid var(--b0);color:var(--t1);font-size:12px;padding:5px 11px;border-radius:14px;">${a}</span>`).join('') : PROX}
           </div>
         </div>
 
@@ -2627,20 +2651,27 @@ function tplDemanda(z) {
       <div class="card-header"><div class="card-title">Segmentos de demanda objetivo · por PERFIL (etapa de vida × NSE × ingreso)</div></div>
       <div style="font-size:11px;color:var(--t2);margin:2px 0 8px;">Cada perfil trae SU programa (recámaras + cajones), SU capacidad de pago por mensualidad (banca MX 30–35%) y su $/m² derivado — a mismo ticket, más m² = menos $/m². La demanda por rango de precio se conserva: solo se reparte entre perfiles. Mercado natural de la zona; el captable se activará con zonas de origen (en proceso).</div>
       <div class="tbl-wrap"><table style="font-size:11.5px;">
-        <thead><tr><th>Perfil</th><th>NSE</th><th>Ingreso med.</th><th>Capacidad de pago</th><th>Programa</th><th>m²</th><th>$/m² derivado</th><th>Hogares</th><th>Nuevas fam/año</th><th>Pool activo</th><th>TCA</th></tr></thead>
-        <tbody>${S.map(p=>`<tr>
+        <thead><tr><th>Perfil</th><th>NSE</th><th>Ingreso med.</th><th>Capacidad de pago</th><th>Producto sugerido</th><th>Hogares</th><th>Dem/mes</th><th>Oferta/mes</th><th>Insatisfecha</th><th>Status</th><th>TCA</th></tr></thead>
+        <tbody>${S.map(p=>{
+          const ps = p.producto_sugerido;
+          const stB = p.status_perfil==='desatendido' ? '<span class="badge b-green">DESATENDIDO</span>'
+                    : p.status_perfil==='sobreofertado' ? '<span class="badge b-amber">SOBREOFERTADO</span>'
+                    : p.status_perfil==='equilibrado' ? '<span class="badge b-blue">EQUILIBRADO</span>'
+                    : '<span class="badge b-purple">S/MOV</span>';
+          const of = p.oferta_perfil;
+          return `<tr>
           <td class="td-name">${p.cohorte_label}${p.banda_ingreso_tag?` <span class="badge ${p.banda_ingreso_tag==='alto'?'b-purple':'b-amber'}" style="font-size:9px;">ingreso ${p.banda_ingreso_tag}</span>`:''}</td>
           <td><span class="badge b-blue">${p.nse}</span></td>
           <td>${p.ixh_mediana!=null?'$'+p.ixh_mediana.toLocaleString('es-MX'):'—'}</td>
           <td>${fM(p.capacidad_pago_banda_M)}</td>
-          <td>${p.programa?p.programa.rec+' rec · '+p.programa.cajones+' caj':'—'}</td>
-          <td>${fB(p.m2_banda)}</td>
-          <td>${p.pm2_derivado_banda&&p.pm2_derivado_banda[0]!=null?'$'+fB(p.pm2_derivado_banda):'—'}</td>
+          <td>${ps?`${ps.rec} rec · ${ps.cajones} caj · ${ps.m2} m² · $${ps.ticket_M}M · $${ps.pm2.toLocaleString('es-MX')}/m² ${ps.en_nucleo_percepcion?'<span style="color:var(--green);">✓ núcleo</span>':'<span style="color:var(--amber);" title="fuera del núcleo de percepción">◦</span>'}`:'—'}</td>
           <td style="font-weight:600;">${p.hogares_stock.toLocaleString('es-MX')}</td>
-          <td style="color:var(--green);font-weight:600;">${p.nuevas_fam_year}</td>
-          <td>${p.pool_activo}</td>
+          <td>${p.demanda_mensual!=null?p.demanda_mensual:'—'}</td>
+          <td>${of?of.oferta_flujo_mensual+' ('+of.n_activas+' tip)':'—'}</td>
+          <td style="color:${(p.insatisfecha_mensual||0)>0?'var(--green)':'var(--amber)'};font-weight:700;">${p.insatisfecha_mensual!=null?p.insatisfecha_mensual:'—'}</td>
+          <td>${stB}</td>
           <td>${p.crecimiento_pct}%</td>
-        </tr>`).join('')}</tbody></table></div>
+        </tr>`;}).join('')}</tbody></table></div>
       <div style="font-size:10px;color:var(--t2);margin-top:6px;">
         Conservación de demanda: ${cons.nf_perfiles!=null?cons.nf_perfiles+' / '+cons.nf_buckets+' nuevas fam/año '+(cons.ok?'✓':'⚠ revisar'):'—'}
         · Masas: ${meta.metodo_masas||''} ${gmmNotas?'· '+gmmNotas:''}
@@ -3230,6 +3261,20 @@ function tplProducto(z) {
       <div class="page-title">${z.name} · Definición de producto</div>
       <div class="page-sub">${z.productos.length} productos analizados · ${recomendados.length} recomendados · ${noRecomendados.length} segmentos a evitar (Océano Rojo) · ${z.nse_dominante}</div>
     </div>
+
+    ${(()=>{ /* PROD-PERFIL · perfiles DESATENDIDOS (demanda insatisfecha) con producto sugerido */
+      const S = (z.segmentos_dem1||[]).filter(p=>p.status_perfil==='desatendido' && p.producto_sugerido)
+        .sort((a,b)=>(b.insatisfecha_mensual||0)-(a.insatisfecha_mensual||0)).slice(0,3);
+      if(!S.length) return '';
+      const card = (p,i)=>{ const ps=p.producto_sugerido; return `
+        <div class="kpi" style="--kpi-color:var(--green)">
+          <div class="kpi-label">🎯 Perfil desatendido ${i+1} · ${p.cohorte_label} (${p.nse})</div>
+          <div class="kpi-val" style="font-size:15px;">${ps.rec} rec · ${ps.m2} m² · $${ps.ticket_M}M</div>
+          <div class="kpi-sub">$${ps.pm2.toLocaleString('es-MX')}/m² ${ps.en_nucleo_percepcion?'✓ en núcleo de percepción':'◦ revisar vs percepción'} · demanda insatisfecha <b>${p.insatisfecha_mensual} un/mes</b> · ${ps.cajones} cajones</div>
+        </div>`; };
+      return `<div class="card" style="margin-bottom:16px;"><div class="card-title">Demanda insatisfecha por PERFIL · producto sugerido (DEM-1)</div>
+        <div class="kpi-row" style="grid-template-columns:repeat(${Math.min(S.length,3)},1fr);margin-top:8px;">${S.map(card).join('')}</div>
+        <div style="font-size:10px;color:var(--t2);margin-top:6px;">Resta oferta−demanda por perfil (flujo contra flujo) · el detalle completo vive en la sección Demanda</div></div>`; })()}
 
     <!-- Status legend -->
     <div class="card" style="margin-bottom:16px;">
@@ -7130,6 +7175,38 @@ function _toggleCapaEn(map, store, k, btn){
 }
 function zaToggleCapa(k, btn){ _toggleCapaEn(zaMap, ZA_CAPAS, k, btn); }
 function mapaToggleCapa(k, btn){ _toggleCapaEn(leafMap, MAPA_CAPAS, k, btn); }
+
+/* INV-3 · fichas de inventario PDF (el backend genera; el front solo pide y descarga) */
+function fichaPdfOpen(){
+  const m = document.getElementById('ficha-modal');
+  if(m) m.style.display = (m.style.display==='none'||!m.style.display) ? 'block' : 'none';
+}
+async function fichaPdfRun(){
+  const st = document.getElementById('ficha-status');
+  const key = window.DATARIA_ANALISIS_KEY;
+  const gv2 = id => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
+  const nombre = gv2('ficha-nombre'), banco = gv2('ficha-banco'), dev = gv2('ficha-dev');
+  if(!key){ if(st) st.textContent = 'Procesa una zona primero: la ficha se genera sobre el análisis activo.'; return; }
+  if(!nombre || !banco || !dev){ if(st) st.textContent = 'Captura los tres campos (proyecto, banco, desarrollador).'; return; }
+  if(st) st.textContent = 'Generando PDF en el backend… (puede tardar con inventarios grandes)';
+  try{
+    const r = await fetch(DATARIA_BACKEND_URL.replace(/\/+$/,'') + '/api/zona/ficha_inventario', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({analisis_key:key, nombre_proyecto:nombre, banco:banco, desarrollador:dev})});
+    const ct = r.headers.get('content-type') || '';
+    if(ct.includes('application/pdf')){
+      const blob = await r.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `fichas_${nombre.replace(/[^\w\-]+/g,'_')}.pdf`;
+      document.body.appendChild(a); a.click(); a.remove();
+      if(st) st.textContent = '✓ PDF descargado.';
+    } else {
+      const j = await r.json();
+      if(st) st.textContent = j.error || 'No se pudo generar el PDF.';
+    }
+  }catch(e){ if(st) st.textContent = 'Error: ' + e.message; }
+}
 
 /* INV-4 · corredor a la medida: el backend calcula estrella + robustas del corredor */
 async function estrellaFiltroRun(){
