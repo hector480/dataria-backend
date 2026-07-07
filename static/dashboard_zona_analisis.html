@@ -6262,6 +6262,7 @@ function tplZonaAnalisis(z){
         <div class="za-card">
           <div class="za-card-h">1 · Ubicación del predio</div>
           <div class="za-field-grid">
+            <label class="za-lbl">Nombre del análisis<input class="za-in" id="za-analisis-nombre" placeholder="p. ej. Torre Centro 01"></label>
             <label class="za-lbl">Estado<input class="za-in" id="za-estado" placeholder="Nuevo León"></label>
             <label class="za-lbl">Ciudad / Municipio<input class="za-in" id="za-ciudad" placeholder="(se detecta del pin)"></label>
             <label class="za-lbl">Colonia<input class="za-in" id="za-colonia" placeholder="(se detecta del pin)"></label>
@@ -6704,6 +6705,7 @@ async function zaRunAnalysis(){
     lat: ZA_STATE.lat, lng: ZA_STATE.lng,
     predio_m2: ZA_STATE.predio_m2, uso_comercial: ZA_STATE.uso_comercial,
     zone_name: gv('za-colonia') || gv('za-ciudad') || 'Zona de análisis',
+    analisis_nombre: gv('za-analisis-nombre') || null,
     colonia: gv('za-colonia') || null,
     municipio: gv('za-ciudad'), estado: gv('za-estado'), pais: 'México',
     norm: ZA_STATE.norm,
@@ -6860,7 +6862,8 @@ function zaUpdateChrome(z){
   const muni = z.municipality || '';
   const sub = z.subtitle || '';
   const set = (id, txt)=>{ const el=document.getElementById(id); if(el) el.textContent = txt; };
-  set('topbar-zona', nombre);
+  // ZA-8 · identidad universal del análisis (la construye el backend; el front solo muestra)
+  set('topbar-zona', z.analisis_id_str || nombre);
   set('topbar-projects', `${nProy} proyectos`);
   set('topbar-units', `${nUds} unidades`);
   set('topbar-ubicacion', `📍 ${nombre}${muni && muni!==nombre ? ' · '+muni : ''}`);
@@ -6871,7 +6874,7 @@ function zaUpdateChrome(z){
   set('sb-badge-resumen', badge);
   set('sb-badge-mapa', badge);
   // Título del documento
-  try{ document.title = `${nombre} · Tablero · Prosperia`; }catch(e){}
+  try{ document.title = `${z.analisis_id_str || nombre} · Tablero · Prosperia`; }catch(e){}
 }
 
 /* Aplica los metadatos de zona (isócronas + percepción) que devuelve el backend */

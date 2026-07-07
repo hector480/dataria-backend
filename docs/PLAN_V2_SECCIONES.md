@@ -57,12 +57,27 @@ Objetivo: precisión en la zona de análisis; contra quién SÍ se compite y con
 
 ---
 
-## PREGUNTAS ABIERTAS (ACCIÓN HÉCTOR)
-- **P1** · Población flotante y extranjera: ¿en qué capa/campos de la base ArcGIS viven? (para ZA-4 lista captable y DEM-1 mercado captable). Pistas, por favor.
-- **P2** · Zonas de ORIGEN-DESTINO: el wrapper PRSP solo expone isócronas de Predik. ¿Predik (la plataforma) tiene esa capacidad contratada? Si sí, pedir al equipo PRSP exponer el endpoint (defino contrato de entrada/salida en cuanto confirmes).
-- **P3** · Series de tiempo de oferta: ¿la capa VVV guarda TODOS los periodos de captura por tipología (para absorción mensual/trimestral/histórica y plusvalía), o solo el último snapshot? El dump en curso lo confirmará; si solo expone snapshot, pedir al equipo PRSP la serie.
-- **P4** · Cuentas (ZA-1): ¿tienen servicio de correo transaccional (SendGrid/SES/SMTP de prosperia.mx) para las claves de verificación? ¿Y apruebas Postgres en Render como DB de cuentas/análisis?
-- **P5** · Geocoding (ZA-2): ¿ArcGIS de Prosperia incluye geocodificador de direcciones MX, o uso Nominatim (OpenStreetMap)?
+## PREGUNTAS · RESPUESTAS DE HÉCTOR (6 jul 2026)
+- **P1** · Flotante/extranjera: debe estar en "mercado captable"/demanda (columna de población
+  extranjera). Si no aparece en el dump → PENDIENTE NO OLVIDAR: Héctor levanta ticket con el
+  equipo de base de datos; aparecerá en horas. Revisar en cada dump nuevo.
+- **P2** · OD: Predik SÍ lo tiene. El wrapper PRSP NO lo expone (21 rutas sondeadas → 404;
+  health="via isochrone"). → TICKET equipo PRSP con contrato propuesto:
+  `POST /api/predik/origen_destino` body `{latitude, longitude, minutes, direction:
+  "origins"|"destinations", transport_type:"driving"}` → `{zonas:[{nombre (colonia),
+  geometry (Polygon), share_pct (viajes de esa zona / total), viajes_abs}]}`.
+- **P3** · La capa VV expone SOLO el periodo vigente; los históricos deben existir como
+  columnas en la base ArcGIS → confirmar en dump de campos; si no llegan por el wrapper,
+  mismo ticket PRSP (serie por periodo para absorción mensual/trimestral/histórica y
+  plusvalía INV-2/7 y RES-1).
+- **P4** · NO hay correo transaccional → ZA-1 se implementa por etapas: cuentas con
+  contraseña HASHEADA (estándar) creadas desde tablero admin, SIN verificación por correo;
+  la verificación se enchufa cuando exista servicio de correo. DB: se define en F-E
+  (Postgres/persistencia en Render pendiente de aprobación de infra).
+- **P5** · Geocoder: intentar ArcGIS como estándar; fallback abierto rápido y preciso.
+  IMPLEMENTADO (F-A): cadena ArcGIS World Geocoder → Nominatim/OSM en
+  `/api/zona/geocode` y `/api/zona/reverse`; cuando PRSP exponga el geocodificador del
+  ArcGIS de Prosperia se apunta vía env `DATARIA_ARCGIS_GEOCODE` sin tocar código.
 
 ## FASES PROPUESTAS (checkpoint de Héctor para arrancar)
 - **F-A · Fundaciones de dato e identidad** (desbloquea todo): freshness RES-4 + dump/mapa de campos reales (INV-5/6, RES-1) + identidad del análisis ZA-8 (sin cuentas aún: nombre+versión en payload) + métricas robustas RES-2 (medianas/MAD/percentiles en catálogo).

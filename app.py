@@ -10,6 +10,8 @@ import statistics
 import math
 import random
 import re
+import time as _time
+import datetime as _dt
 from typing import Optional, List, Dict, Any
 
 # Banda de plausibilidad física (m²)
@@ -54,6 +56,53 @@ def _wavg(rows: List[Dict], key: str, weight: str) -> Optional[float]:
         if v is not None and w is not None and w > 0:
             num += v * w; den += w
     return (num / den) if den > 0 else None
+
+
+# ════════════ RES-2 · ESTADÍSTICA ROBUSTA (estándar de toda la herramienta) ════════════
+# Regla de Héctor (coincide con el estándar): NUNCA promedios simples. Lo "normal" se
+# describe con MEDIANA + MAD; las bandas con percentiles; los "anormales" (outliers) se
+# detectan con la regla de Tukey sobre el IQR sin que distorsionen la lectura.
+def _percentil(vals, p: float):
+    """Percentil p (0-1) con interpolación lineal. None si no hay datos."""
+    v = sorted(x for x in vals if x is not None)
+    if not v:
+        return None
+    if len(v) == 1:
+        return v[0]
+    k = (len(v) - 1) * p
+    f = math.floor(k)
+    c = math.ceil(k)
+    if f == c:
+        return v[int(k)]
+    return v[f] + (v[c] - v[f]) * (k - f)
+
+
+def _stats_robustas(vals, k_iqr: float = 1.5) -> Dict[str, Any]:
+    """Describe una muestra con métricas ROBUSTAS (catálogo universal):
+      • mediana, mad (desviación absoluta mediana; mad×1.4826 ≈ σ equivalente),
+      • cv_robusto = (mad×1.4826)/mediana,
+      • p10/p25/p75/p90 (bandas), iqr,
+      • outliers por Tukey: fuera de [p25 − k·IQR, p75 + k·IQR] (k=1.5 estándar).
+    Sin datos → n=0 y None en todo (N/D legítimo, jamás inventar)."""
+    v = sorted(x for x in vals if x is not None)
+    if not v:
+        return {"n": 0, "mediana": None, "mad": None, "cv_robusto": None,
+                "p10": None, "p25": None, "p75": None, "p90": None, "iqr": None,
+                "outliers_n": 0, "outliers": [], "min": None, "max": None}
+    med = statistics.median(v)
+    mad = statistics.median([abs(x - med) for x in v]) if len(v) > 1 else 0.0
+    p10 = _percentil(v, 0.10); p25 = _percentil(v, 0.25)
+    p75 = _percentil(v, 0.75); p90 = _percentil(v, 0.90)
+    iqr = (p75 - p25) if (p75 is not None and p25 is not None) else None
+    lo = (p25 - k_iqr * iqr) if iqr is not None else None
+    hi = (p75 + k_iqr * iqr) if iqr is not None else None
+    outliers = [x for x in v if (lo is not None and x < lo) or (hi is not None and x > hi)]
+    return {"n": len(v), "mediana": round(med, 2), "mad": round(mad, 2),
+            "cv_robusto": round((1.4826 * mad) / med, 4) if med else None,
+            "p10": round(p10, 2), "p25": round(p25, 2), "p75": round(p75, 2), "p90": round(p90, 2),
+            "iqr": round(iqr, 2) if iqr is not None else None,
+            "outliers_n": len(outliers), "outliers": [round(x, 2) for x in outliers[:12]],
+            "min": round(v[0], 2), "max": round(v[-1], 2)}
 
 
 # ──────────────────────── Isócrona por tamaño/uso ────────────────────────
@@ -535,6 +584,9 @@ def _valor_zona_cascada(competidores: Dict, perception: Dict, demografia: Dict,
                 "ticket_ref_M": round(pm2 * m2_ref / 1e6, 2) if m2_ref else None,
                 "fuente": fuente,
                 "n_comparables": len([c for c in items if c.get("pm2")]),
+                # ZA-7 · descripción robusta del set que define el valor de zona
+                "stats_robustas": _stats_robustas([c.get("pm2") for c in (items or [])
+                                                   if c.get("pm2") and c["pm2"] > 1000]),
                 "rigidez": "mercado_establecido",
                 "_need_m2": m2_ref is None,   # señal: completar m2/ticket con el producto recomendado
                 "nota": (f"Valor de zona anclado a {len([c for c in items if c.get('pm2')])} "
@@ -627,6 +679,9 @@ def value_perception_adjust(resumen: List[Dict], base_ring: List[List[float]],
     sd = statistics.pstdev(precios)
     cv = sd / media if media > 0 else None
     out.update(media=media, sd=sd, cv=cv)
+    # ZA-7/RES-2 · descripción ROBUSTA de la zona (mediana/MAD/percentiles/outliers);
+    # media/sd/cv se conservan por compatibilidad (catálogo: no se cambia lo existente).
+    out["stats_robustas"] = _stats_robustas(precios)
 
     # Pin: si no se pasó, usar el centroide de masa de los proyectos como referencia.
     p_lng = pin_lng if pin_lng is not None else statistics.mean(p["lng"] for p in dentro)
@@ -673,6 +728,7 @@ def value_perception_adjust(resumen: List[Dict], base_ring: List[List[float]],
     out["media"] = cmedia
     out["sd"] = statistics.pstdev(cprecios)
     out["cv"] = (out["sd"] / cmedia) if cmedia else None
+    out["stats_robustas"] = _stats_robustas(cprecios)   # robustas del MERCADO DEL PIN
     out["cobertura_pct"] = round(len(cluster) / max(len(dentro), 1) * 100)
     out["cluster_names"] = set(p["name"] for p in cluster if p.get("name") and p["name"] != "N/D")
     out["motivo"] = (f"{mk['k_elegido']} mercados detectados (gap={mk['gap']}, "
@@ -3529,6 +3585,24 @@ def build_analysis_vars(req, profile, isocronas, perception, demografia,
     }
 
 
+def _analisis_identidad(analisis_nombre, colonia, municipio, estado) -> Dict[str, Any]:
+    """ZA-8 · Identidad universal del análisis, presente en TODOS los encabezados:
+    'nombre_del_usuario · colonia · municipio · estado · vAAAAMMDDHHMM'.
+    La versión usa hora del centro de México (UTC-6 fijo desde 2022, sin horario de
+    verano). Componentes ausentes se OMITEN (integridad: no se inventa)."""
+    now = _dt.datetime.now(_dt.timezone(_dt.timedelta(hours=-6)))
+    version = now.strftime("%Y%m%d%H%M")
+    partes = [str(p).strip() for p in (analisis_nombre, colonia, municipio, estado)
+              if p and str(p).strip()]
+    idstr = " · ".join(partes + [f"v{version}"]) if partes else f"v{version}"
+    return {
+        "analisis_nombre": (str(analisis_nombre).strip() if analisis_nombre else None),
+        "analisis_version": version,
+        "analisis_id_str": idstr,
+        "analisis_fecha": now.strftime("%Y-%m-%d %H:%M"),
+    }
+
+
 def _zone_label(producto_modo: str, kpis: Dict) -> Optional[str]:
     """Etiqueta de la zona acorde al MODO analizado y a los KPIs REALES de oferta.
     Si no hay oferta (proyectos=0), lo indica explícitamente en vez de inventar cifras."""
@@ -3580,6 +3654,9 @@ def assemble_zone_payload(req, profile, isocronas, resumen, ft, pagos, resumen_r
         subt_parts = [p for p in (estado, pais) if p]  # nombre=municipio → subtítulo desde estado
     subtitle = " · ".join(subt_parts) if subt_parts else None
 
+    # ZA-8 · Identidad universal del análisis (una sola vez por procesamiento)
+    identidad = _analisis_identidad(getattr(req, "analisis_nombre", None), colonia, municipio, estado)
+
     # Derivaciones de demanda/renta que dependen de varios insumos
     renta_segmentos = derive_renta_segmentos(segments, agebs)
     demanda_segmentos = derive_demanda_segmentos(segments, productos)
@@ -3630,6 +3707,11 @@ def assemble_zone_payload(req, profile, isocronas, resumen, ft, pagos, resumen_r
     zone_data = {
         "name": zone_name,
         "subtitle": subtitle,
+        # ZA-8 · identidad del análisis (el front la muestra en TODOS los encabezados)
+        "analisis_nombre": identidad["analisis_nombre"],
+        "analisis_version": identidad["analisis_version"],
+        "analisis_id_str": identidad["analisis_id_str"],
+        "analisis_fecha": identidad["analisis_fecha"],
         "municipality": municipio,
         "label": _zone_label(producto_modo, kpis),
         "center": center, "zoom": 13,
@@ -3696,6 +3778,11 @@ def assemble_zone_payload(req, profile, isocronas, resumen, ft, pagos, resumen_r
              if p.get("name") and p.get("name") != "N/D"}
         ),
     }
+    # ZA-8 · la identidad también vive en _vars (fuente única que leen todas las secciones)
+    try:
+        zone_data["_vars"].update(identidad)
+    except Exception:
+        pass
 
     # DIM_DATA (para tplDemanda)
     totals = {
@@ -4276,6 +4363,9 @@ class Normatividad(BaseModel):
 class ZonaRequest(BaseModel):
     lat: float
     lng: float
+    # ZA-8 · Nombre que el usuario da al análisis (encabeza la identidad universal
+    # 'nombre · colonia · municipio · estado · vAAAAMMDDHHMM' en todos los tableros).
+    analisis_nombre: Optional[str] = None
     predio_m2: Optional[float] = None
     uso_comercial: bool = False
     zone_name: Optional[str] = None
@@ -4304,6 +4394,72 @@ PRODUCTO_MODES = {
     "oficinas":            {"label": "Oficinas",            "activo": False, "oferta_layer": None},
     "hotel":               {"label": "Hotel",               "activo": False, "oferta_layer": None},
 }
+
+
+# ════════════ ARQ-MODULAR · Caché de análisis + secciones independientes ════════════
+# Regla de Héctor: cada sección debe poder ser LLAMADA Y MOSTRADA sola desde el front,
+# sin depender de otra sección (usuarios con acceso a 1, 2 o todas las secciones y a
+# zonas distintas). El pipeline pesado corre UNA vez (zona_procesar) y deja el análisis
+# en caché; /api/zona/seccion sirve cualquier sección individual desde ahí. La caché es
+# en memoria (mismo patrón que _CUENTAS); al llegar la DB (F-E) se persiste sin cambiar
+# el contrato del endpoint.
+ANALYSIS_CACHE: Dict[str, Dict[str, Any]] = {}
+ANALYSIS_CACHE_MAX = int(os.environ.get("DATARIA_CACHE_MAX", "40"))
+
+
+def _analysis_cache_put(key: Optional[str], payload: Dict[str, Any]) -> None:
+    if not key:
+        return
+    ANALYSIS_CACHE[key] = {"payload": payload, "ts": _time.time()}
+    while len(ANALYSIS_CACHE) > ANALYSIS_CACHE_MAX:
+        oldest = min(ANALYSIS_CACHE, key=lambda k: ANALYSIS_CACHE[k]["ts"])
+        ANALYSIS_CACHE.pop(oldest, None)
+
+
+def _analysis_cache_get(key: Optional[str]) -> Optional[Dict[str, Any]]:
+    entry = ANALYSIS_CACHE.get(key) if key else None
+    return entry["payload"] if entry else None
+
+
+class SeccionRequest(BaseModel):
+    analisis_key: str          # el analisis_id_str que devolvió /api/zona/procesar
+    seccion: str               # clave de SECTION_REGISTRY (resumen, mapa, demanda, ...)
+
+
+@app.post("/api/zona/seccion")
+def zona_seccion(req: SeccionRequest):
+    """Sirve UNA sección de un análisis ya procesado (independiente del resto).
+    Contrato estable para el modelo de permisos por sección/zona (la autenticación
+    real se enchufa en F-E sin cambiar este contrato)."""
+    cfg = SECTION_REGISTRY.get(req.seccion)
+    if not cfg:
+        return {"ok": False, "error": f"Sección desconocida: {req.seccion}",
+                "secciones_validas": section_keys(True)}
+    payload = _analysis_cache_get(req.analisis_key)
+    if not payload:
+        return {"ok": False, "error": "Análisis no encontrado en caché · reprocesa la zona",
+                "analisis_key": req.analisis_key,
+                "en_cache": sorted(ANALYSIS_CACHE.keys())[:10]}
+    zd = payload.get("zone_data") or {}
+    dd = payload.get("dim_data") or {}
+    data: Dict[str, Any] = {}
+    for k in cfg["payload_keys"]:
+        if k in zd:
+            data[k] = zd[k]
+        elif k in dd:
+            data[k] = dd[k]
+        elif k in payload:
+            data[k] = payload[k]
+    # Contexto transversal mínimo (identidad ZA-8 SIEMPRE presente en encabezados)
+    for k in ("name", "subtitle", "analisis_nombre", "analisis_version",
+              "analisis_id_str", "analisis_fecha", "center"):
+        data.setdefault(k, zd.get(k, payload.get(k)))
+    data["producto"] = payload.get("producto")
+    # _vars: fuente única que los templates consumen (TODO F-E: filtrar por access_tier)
+    data["_vars"] = zd.get("_vars")
+    return {"ok": True, "seccion": req.seccion, "label": cfg["label"],
+            "access_tier": cfg["access_tier"], "analisis_key": req.analisis_key,
+            "data": data}
 
 
 # ──────────────────────── Clientes de servicios ────────────────────────
@@ -4770,6 +4926,14 @@ async def zona_procesar(req: ZonaRequest):
     payload["producto"] = modo
     payload["producto_label"] = modo_cfg["label"]
     payload["errors"] = errors
+    # ARQ-MODULAR · dejar el análisis en caché para servir secciones independientes
+    # (/api/zona/seccion) y devolver la llave al front (= identidad ZA-8).
+    try:
+        _key = (payload.get("zone_data") or {}).get("analisis_id_str")
+        _analysis_cache_put(_key, payload)
+        payload["analisis_key"] = _key
+    except Exception as e:
+        errors["cache"] = str(e)[:80]
     return payload
 
 
@@ -4780,6 +4944,95 @@ async def zona_procesar(req: ZonaRequest):
 # y por zona. Almacén en memoria (sustituible por DB/identidad real en producción).
 # El objetivo operativo: restringir el acceso DETALLADO a zonas no autorizadas,
 # manteniendo el acceso GENERAL (preliminar) disponible para evaluaciones.
+
+# ════════════ ZA-2 · GEOCODIFICACIÓN (dirección ⇄ pin) ════════════
+# Cadena de proveedores: 1º ArcGIS World Geocoder (estándar Esri; P5: cuando el equipo
+# PRSP exponga el geocodificador del ArcGIS de Prosperia se apunta ahí vía la variable
+# de entorno DATARIA_ARCGIS_GEOCODE sin tocar código) · 2º Nominatim/OSM (abierto,
+# gratuito, buena precisión en MX). Integridad: sin resultado → lista vacía, no inventa.
+ARCGIS_GEOCODE_BASE = os.environ.get(
+    "DATARIA_ARCGIS_GEOCODE",
+    "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer")
+NOMINATIM_BASE = os.environ.get("DATARIA_NOMINATIM", "https://nominatim.openstreetmap.org")
+_GEOCODE_UA = {"User-Agent": "Dataria/2.0 (contacto@prosperia.mx)"}
+
+
+@app.get("/api/zona/geocode")
+async def zona_geocode(q: str):
+    """Dirección escrita → candidatos {lat,lng,label,colonia,municipio,estado} (ZA-2)."""
+    out = {"ok": True, "q": q, "fuente": None, "resultados": []}
+    async with httpx.AsyncClient(timeout=15) as client:
+        try:
+            r = await client.get(f"{ARCGIS_GEOCODE_BASE}/findAddressCandidates",
+                                 params={"f": "json", "singleLine": q, "countryCode": "MEX",
+                                         "maxLocations": 5, "outFields": "Nbrhd,City,Region"})
+            for c in (r.json() or {}).get("candidates") or []:
+                loc = c.get("location") or {}
+                at = c.get("attributes") or {}
+                if loc.get("y") is None:
+                    continue
+                out["resultados"].append({"lat": loc["y"], "lng": loc["x"],
+                                          "label": c.get("address"),
+                                          "colonia": at.get("Nbrhd") or None,
+                                          "municipio": at.get("City") or None,
+                                          "estado": at.get("Region") or None})
+            if out["resultados"]:
+                out["fuente"] = "arcgis"
+                return out
+        except Exception:
+            pass
+        try:
+            r = await client.get(f"{NOMINATIM_BASE}/search", headers=_GEOCODE_UA,
+                                 params={"format": "json", "q": q, "countrycodes": "mx",
+                                         "limit": 5, "addressdetails": 1})
+            for c in (r.json() or []):
+                ad = c.get("address") or {}
+                out["resultados"].append({"lat": float(c["lat"]), "lng": float(c["lon"]),
+                                          "label": c.get("display_name"),
+                                          "colonia": ad.get("neighbourhood") or ad.get("suburb"),
+                                          "municipio": ad.get("city") or ad.get("town") or ad.get("municipality"),
+                                          "estado": ad.get("state")})
+            out["fuente"] = "nominatim" if out["resultados"] else None
+        except Exception as e:
+            out["ok"] = False
+            out["error"] = str(e)[:120]
+    return out
+
+
+@app.get("/api/zona/reverse")
+async def zona_reverse(lat: float, lng: float):
+    """Pin → dirección (autollenar colonia/municipio/estado del formulario · ZA-2)."""
+    out = {"ok": True, "lat": lat, "lng": lng, "fuente": None, "direccion": None,
+           "colonia": None, "municipio": None, "estado": None, "pais": None}
+    async with httpx.AsyncClient(timeout=15) as client:
+        try:
+            r = await client.get(f"{ARCGIS_GEOCODE_BASE}/reverseGeocode",
+                                 params={"f": "json", "location": f"{lng},{lat}"})
+            ad = (r.json() or {}).get("address") or {}
+            if ad.get("City") or ad.get("LongLabel"):
+                out.update(colonia=ad.get("Neighborhood"), municipio=ad.get("City"),
+                           estado=ad.get("Region"), pais=ad.get("CntryName") or "México",
+                           direccion=ad.get("LongLabel") or ad.get("Match_addr"),
+                           fuente="arcgis")
+                return out
+        except Exception:
+            pass
+        try:
+            r = await client.get(f"{NOMINATIM_BASE}/reverse", headers=_GEOCODE_UA,
+                                 params={"format": "json", "lat": lat, "lon": lng,
+                                         "addressdetails": 1})
+            j = r.json() or {}
+            ad = j.get("address") or {}
+            out.update(colonia=ad.get("neighbourhood") or ad.get("suburb"),
+                       municipio=ad.get("city") or ad.get("town") or ad.get("municipality"),
+                       estado=ad.get("state"), pais=ad.get("country"),
+                       direccion=j.get("display_name"),
+                       fuente="nominatim" if (ad.get("state") or j.get("display_name")) else None)
+        except Exception as e:
+            out["ok"] = False
+            out["error"] = str(e)[:120]
+    return out
+
 
 class CuentaCreate(BaseModel):
     usuario: str

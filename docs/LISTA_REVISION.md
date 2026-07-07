@@ -912,3 +912,31 @@ rutas OD → 404) → P2. /api/descargas: el export DI acepta filtros `where` ar
 mode=influence (útil para explorador nacional y capas). Dump de campos VVV/DI: pendiente
 por saturación del API PRSP (loop de reintentos corriendo); con él se resuelven RES-4
 (freshness Guadalupe feb vs jun), INV-5 (desarrollador), INV-6/7 (campos de ficha) y P3.
+
+## F-A. Fundaciones V2 (GO de Héctor con P1-P5 respondidas) — [x] HECHO (6 jul 2026)
+Arquitectura confirmada por Héctor: MODULAR — cada sección invocable sola desde el front
+(permisos por sección/zona). Entregado:
+  • ZA-8 IDENTIDAD UNIVERSAL: _analisis_identidad() → analisis_nombre/version/id_str/fecha
+    ('nombre · colonia · municipio · estado · vAAAAMMDDHHMM', hora centro de México).
+    En zone_data + _vars; front: campo "Nombre del análisis" en formulario, body lo envía,
+    topbar y título del documento la muestran (el backend la construye, el front solo pinta).
+  • RES-2 ESTADÍSTICA ROBUSTA (catálogo): _percentil() y _stats_robustas() → n, mediana,
+    mad, cv_robusto (MAD×1.4826/mediana), p10/p25/p75/p90, iqr, outliers Tukey (k=1.5),
+    min/max. Aplicada ADITIVAMENTE (media/sd/cv se conservan: catálogo no muta) en
+    value_perception_adjust (zona e isócrona y mercado del pin) y _valor_zona_cascada
+    (stats del set que define el valor). Adopción visual en F-B/F-C.
+  • ARQ-MODULAR: ANALYSIS_CACHE (en memoria, LRU por ts, DATARIA_CACHE_MAX=40) +
+    POST /api/zona/seccion {analisis_key, seccion} → sirve UNA sección (payload_keys del
+    SECTION_REGISTRY + identidad + _vars). zona_procesar guarda el análisis y devuelve
+    analisis_key. Contrato estable; F-E enchufa auth/persistencia sin cambiarlo.
+  • ZA-2 GEOCODING: GET /api/zona/geocode?q= y /api/zona/reverse?lat=&lng= con cadena
+    ArcGIS World Geocoder → Nominatim (countrycodes=mx, User-Agent propio). NOTA: el
+    sandbox bloquea ambos dominios → VALIDAR EN PRODUCCIÓN tras push (Safari).
+  • P2 CONFIRMADO: wrapper PRSP sin OD (21 rutas → 404) → ticket con contrato propuesto
+    (ver PLAN_V2_SECCIONES.md P2). P4: sin correo → ZA-1 por etapas (hash + admin, sin
+    verificación por correo hasta tener servicio).
+VALIDADO: py_compile · node --check · unitarias (identidad 2 casos, stats con outlier
+  Tukey, sección demanda desde caché, key/sección inexistentes, eviction, rutas
+  registradas) · verify_all 8/8 + render 10/10 (zona en vivo). PENDIENTES POR SALUD DEL
+  API (loops corriendo, se anotan al caer): dump de campos VVV/DI (gate de RES-4/INV-5/
+  6/7/P1/P3), verify_interactive 16/16, GDL Jalisco.
