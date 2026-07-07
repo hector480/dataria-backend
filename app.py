@@ -3585,6 +3585,66 @@ def build_analysis_vars(req, profile, isocronas, perception, demografia,
     }
 
 
+def derive_percepcion_detalle(perception, segments, demografia, productos) -> Dict[str, Any]:
+    """ZA-6 · Delimita la PERCEPCIÓN DE VALOR de la zona y describe el MERCADO META que
+    genera demanda para una zona así. Todo con datos reales y métricas robustas (RES-2):
+      • límites inferior/superior = P10/P90 del $/m² del mercado del pin,
+      • núcleo = P25-P75 (donde vive el 50% central de la oferta comparable),
+      • los outliers (Tukey) se cuentan pero NO definen la zona,
+      • mercado meta = NSE/ingreso/etapas de vida del ancla de demanda derivada.
+    Sin oferta comparable → banda None y nota explícita (valor por percepción/NSE)."""
+    p = perception or {}
+    sr = p.get("stats_robustas") or {}
+    det = {
+        "pm2_mediana": sr.get("mediana"),
+        "pm2_mad": sr.get("mad"),
+        "banda_nucleo": [sr.get("p25"), sr.get("p75")],
+        "limite_inferior": sr.get("p10"),
+        "limite_superior": sr.get("p90"),
+        "extremos": [sr.get("min"), sr.get("max")],
+        "n_comparables": sr.get("n") or 0,
+        "outliers_n": sr.get("outliers_n") or 0,
+        "nse_percepcion": None,
+        "mercado_meta": None,
+        "nota": None,
+    }
+    nd = (demografia or {}).get("nse_dominante") or ""
+    det["nse_percepcion"] = nd.split(" ")[0] if nd else None
+    # Mercado meta desde el producto ANCLA (featured) y su segmento de demanda
+    feat = next((x for x in (productos or []) if x.get("featured")), None)
+    seg_feat = None
+    if feat:
+        seg_feat = next((s for s in (segments or [])
+                         if f"{s.get('NSE')} · {s.get('bucket')}" == feat.get("seg_dim")), None)
+    etiquetas = ["niños", "adolescentes", "jóvenes", "jóvenes adultos", "consolidados", "maduros"]
+    edad = (demografia or {}).get("edad_grupos") or []
+    etapas_top = []
+    if edad and len(edad) == 6:
+        orden = sorted(range(6), key=lambda i: -(edad[i] or 0))
+        etapas_top = [{"etapa": etiquetas[i], "poblacion": edad[i]} for i in orden[:3] if edad[i]]
+    det["mercado_meta"] = {
+        "nse": (seg_feat or {}).get("NSE") or det["nse_percepcion"],
+        "ingreso_min": (seg_feat or {}).get("ing_min"),
+        "ingreso_max": (seg_feat or {}).get("ing_max"),
+        "ticket_ancla": (feat or {}).get("ticket"),
+        "perfiles": (feat or {}).get("perfiles") or [],
+        "etapas_top": etapas_top,
+        "share_renta": (seg_feat or {}).get("share_renta"),
+    }
+    if det["pm2_mediana"]:
+        try:
+            det["nota"] = (f"El valor percibido de la zona vive entre "
+                           f"${det['limite_inferior']:,.0f} y ${det['limite_superior']:,.0f}/m² "
+                           f"(núcleo ${det['banda_nucleo'][0]:,.0f}–${det['banda_nucleo'][1]:,.0f}). "
+                           f"{det['outliers_n']} proyecto(s) fuera de norma no definen la zona.")
+        except Exception:
+            det["nota"] = None
+    else:
+        det["nota"] = ("Sin oferta comparable: la percepción de valor se establece por NSE y "
+                       "capacidad de pago de la demanda (valor indicativo).")
+    return det
+
+
 def _analisis_identidad(analisis_nombre, colonia, municipio, estado) -> Dict[str, Any]:
     """ZA-8 · Identidad universal del análisis, presente en TODOS los encabezados:
     'nombre_del_usuario · colonia · municipio · estado · vAAAAMMDDHHMM'.
@@ -3767,6 +3827,8 @@ def assemble_zone_payload(req, profile, isocronas, resumen, ft, pagos, resumen_r
                 "competidores": perception.get("competidores"),
             },
             "nse_barrier": _nse_barrier_info(agebs, agebs_geo),
+            # ZA-6 · delimitación de percepción de valor + mercado meta (bandas robustas)
+            "percepcion_detalle": derive_percepcion_detalle(perception, segments, demografia, productos),
             "agebs_geo": agebs_geo,
         },
         "_vars": build_analysis_vars(req, profile, isocronas, perception, demografia,
@@ -4536,25 +4598,63 @@ def parse_di_geometria(zip_bytes: bytes) -> List[Dict[str, Any]]:
         nse_ord = int(mo.group(1)) if mo else None
         mt = re.search(r'ingreso</td>\s*<td>([^<]+)</td>', body)
         nse_txt = mt.group(1).strip() if mt else None
+        # Bloques de coordenadas POR SEPARADO (un placemark puede traer multipolígono;
+        # mezclar bloques produciría un anillo cruzado inválido).
+        bloques = []
         xs, ys = [], []
         for co in re.findall(r"<coordinates>(.*?)</coordinates>", body, re.S):
+            blq = []
             for tok in co.strip().split():
                 p = tok.split(",")
                 if len(p) >= 2:
                     try:
-                        xs.append(float(p[0])); ys.append(float(p[1]))
+                        bx, by = float(p[0]), float(p[1])
+                        blq.append((bx, by))
+                        xs.append(bx); ys.append(by)
                     except ValueError:
                         pass
+            if len(blq) >= 4:
+                bloques.append(blq)
         if not xs:
             continue
         cent_lng = sum(xs) / len(xs)
         cent_lat = sum(ys) / len(ys)
+        # F-B/MAPA-1 · ANILLO del polígono (bloque mayor, decimado a ≤60 vértices) para
+        # pintar la capa coroplética de NSE en el mapa. Aditivo: los consumidores previos
+        # (proximidad, barrera) siguen usando solo nse_rank/nse_txt/lng/lat.
+        ring = []
+        area_km2 = None
+        if bloques:
+            mayor = max(bloques, key=len)
+            paso = max(1, math.ceil(len(mayor) / 60))
+            ring = [[round(x, 5), round(y, 5)] for x, y in mayor[::paso]]
+            if ring and ring[0] != ring[-1]:
+                ring.append(ring[0])
+            # Área aproximada en km² (shoelace equirectangular · dato geométrico)
+            lat0 = math.radians(cent_lat)
+            km = [((x - cent_lng) * 111.32 * math.cos(lat0), (y - cent_lat) * 111.32)
+                  for x, y in mayor]
+            s = 0.0
+            for i in range(len(km) - 1):
+                s += km[i][0] * km[i + 1][1] - km[i + 1][0] * km[i][1]
+            area_km2 = round(abs(s) / 2.0, 4)
+        # Atributos GENÉRICOS de la descripción del placemark (pares <td>etiqueta|valor</td>):
+        # lo que la base publique por AGEB (población, hogares, etc.) queda disponible para
+        # capas futuras (densidad, flotante) SIN reescribir el parser. Cap a 25 pares.
+        attrs = {}
+        for ma in re.finditer(r'<td>([^<]{1,60})</td>\s*<td>([^<]{0,80})</td>', body):
+            if len(attrs) >= 25:
+                break
+            attrs[ma.group(1).strip()] = ma.group(2).strip()
         out.append({
             "nse_rank": nse_ord,        # ordinal del NSE (señal para el clustering)
             "nse_txt": nse_txt,         # NSE textual (A..E / Industrial)
             "lng": round(cent_lng, 6),
             "lat": round(cent_lat, 6),
             "n_vertices": len(xs),
+            "ring": ring,               # anillo [[lng,lat],...] para capa del mapa (F-B)
+            "area_km2": area_km2,       # área del AGEB (para densidad cuando haya campos)
+            "attrs": attrs,             # atributos publicados por la base (genérico)
         })
     return out
 

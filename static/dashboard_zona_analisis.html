@@ -1756,7 +1756,13 @@ function tplMapa(z) {
       <div class="page-sub">${sub}</div>
     </div>
     <div class="map-filters">${filtros}</div>
-    <div id="proyMap"></div>
+    <!-- MAPA-1 · capas de información encendibles (mapa maestro) -->
+    <div class="map-filters" style="margin-top:6px;">
+      <span style="font-size:11px;color:#8A90A6;align-self:center;">Capas:</span>
+      <button class="mf-btn" onclick="mapaToggleCapa('nse',this)">◧ NSE por AGEB</button>
+      <button class="mf-btn" onclick="mapaToggleCapa('pv',this)">◉ Percepción de valor $/m²</button>
+    </div>
+    <div id="proyMap" style="height:72vh;min-height:520px;"></div>
     <div id="mapStatus" style="display:none;position:absolute;top:12px;left:12px;background:rgba(245,158,11,.15);border:1px solid rgba(245,158,11,.35);border-radius:8px;padding:8px 12px;font-size:12px;color:#F59E0B;z-index:1000;max-width:280px;">⚠ Capa base no disponible · Funcionará al publicar online</div>
     <div class="legend-row" style="margin-top:14px;">${leyenda}</div>`;
 }
@@ -6318,6 +6324,13 @@ function tplZonaAnalisis(z){
           <div class="legend-item"><span class="za-dot" style="background:#EF4444;"></span>alto</div>
         </div>
 
+        <!-- F-B/ZA-4 · capas simples de lectura inicial (el análisis profundo vive en MAPA) -->
+        <div class="map-filters" id="za-capas" style="display:none;margin-top:8px;">
+          <span style="font-size:11px;color:#8A90A6;align-self:center;">Capas:</span>
+          <button class="mf-btn" onclick="zaToggleCapa('nse',this)">◧ NSE por AGEB</button>
+          <button class="mf-btn" onclick="zaToggleCapa('pv',this)">◉ Percepción de valor $/m²</button>
+        </div>
+
         <div class="za-results" id="za-results"></div>
       </div>
     </div>`;
@@ -6542,6 +6555,13 @@ function zaClearLayers(){
   zaLayerIso.forEach(l=>{ if(zaMap) zaMap.removeLayer(l); }); zaLayerIso=[];
   zaLayerValor.forEach(l=>{ if(zaMap) zaMap.removeLayer(l); }); zaLayerValor=[];
   if(zaLayerZona && zaMap){ zaMap.removeLayer(zaLayerZona); zaLayerZona=null; }
+  // F-B · limpiar capas de información encendidas (NSE / percepción)
+  if(typeof ZA_CAPAS !== 'undefined'){
+    Object.keys(ZA_CAPAS).forEach(k=>{
+      if(ZA_CAPAS[k] && zaMap){ try{ zaMap.removeLayer(ZA_CAPAS[k]); }catch(e){} }
+      ZA_CAPAS[k]=null;
+    });
+  }
 }
 
 /* ───────────────── Render de resultados ───────────────── */
@@ -6567,17 +6587,32 @@ function zaRenderResults(perfil, proyectos, ajuste){
       <div class="za-res-big">${perfil.label}</div>
       <div class="za-res-sub">Predio: ${zaNum(ZA_STATE.predio_m2)} m² ${ZA_STATE.uso_comercial?'· uso comercial':''}</div>
       ${segNote}
+      <div class="za-res-note">Anillos: <b style="color:#0540F2;">azul</b> = zona primaria (quién llega al predio) · <b style="color:#00B564;">verde</b> = zona secundaria (amplía la demanda) · <b style="color:#8B5CF6;">morado</b> = mercado del predio (contra quién se compite de verdad).</div>
     </div>
 
     <div class="za-res-card">
       <div class="za-res-h">Zona de influencia real</div>
       <div class="za-res-sub">${barreraTxt}</div>
-      <div class="za-kv">
-        <span>Proyectos en zona</span><b>${ajuste.n_zona!=null?ajuste.n_zona:'N/D'}</b>
-        <span>$/m² de zona</span><b>${zaMoney(ajuste.media)}</b>
-        <span>Dispersión (σ)</span><b>${ajuste.sd!=null?zaMoney(ajuste.sd):'N/D'}</b>
-        <span>Coef. variación</span><b>${ajuste.cv!=null?(ajuste.cv*100).toFixed(0)+'%':'N/D'}</b>
-      </div>
+      ${(()=>{ /* ZA-7 · métricas ROBUSTAS del backend; sin oferta → valor por cascada (cero N/D) */
+        const sr = ajuste.stats_robustas || {};
+        const vz = ajuste.valor_zona || {};
+        if((sr.n||0) > 0){
+          return `<div class="za-kv">
+            <span>Proyectos en zona</span><b>${ajuste.n_zona!=null?ajuste.n_zona:sr.n}</b>
+            <span>$/m² de zona (mediana)</span><b>${zaMoney(sr.mediana)}</b>
+            <span>Dispersión robusta (MAD)</span><b>${sr.mad!=null?zaMoney(sr.mad):'—'}</b>
+            <span>Coef. de variación robusto</span><b>${sr.cv_robusto!=null?(sr.cv_robusto*100).toFixed(0)+'%':'—'}</b>
+            <span>Núcleo del mercado (P25–P75)</span><b>${sr.p25!=null?zaMoney(sr.p25)+' – '+zaMoney(sr.p75):'—'}</b>
+            <span>Proyectos fuera de norma</span><b>${sr.outliers_n||0}${sr.outliers_n?' (no definen la zona)':''}</b>
+          </div>`;
+        }
+        return `<div class="za-kv">
+          <span>Proyectos en zona</span><b>0 · sin oferta comparable</b>
+          <span>$/m² de zona</span><b>${zaMoney(vz.pm2)}</b>
+          <span>Origen del valor</span><b style="font-size:11px;">${vz.rigidez==='indicativo'?'percepción de valor · NSE y capacidad de pago':'comparables cercanos'}</b>
+          <span>Ticket de referencia</span><b>${vz.ticket_ref_M!=null?'$'+vz.ticket_ref_M+'M':'—'}</b>
+        </div>`;
+      })()}
       ${(()=>{ const vz=ajuste.valor_zona; if(!vz) return '';
         const fuenteTxt={competidores_directos:'competidores directos',competidores_primarios:'competidores primarios',competidores_secundarios:'competidores secundarios',percepcion_valor_nse:'percepción de valor · NSE y capacidad de pago'}[vz.fuente]||vz.fuente;
         const rig= vz.rigidez==='indicativo'
@@ -6590,39 +6625,80 @@ function zaRenderResults(perfil, proyectos, ajuste){
         </div>${rig}`; })()}
     </div>
     ${(()=>{ const c=ajuste.competidores; if(!c) return '';
+      /* ZA-5 · cada categoría se DESPLIEGA al hacer clic mostrando sus proyectos */
+      const lista = (arr)=> (arr||[]).slice()
+        .sort((a,b)=>(b.pm2||0)-(a.pm2||0)).slice(0,20)
+        .map(p=>`<div class="za-valor-row"><span>${p.name||'—'}</span><b>${p.pm2?zaMoney(p.pm2)+'/m²':'—'}</b></div>`).join('')
+        || '<div class="za-res-sub">Sin proyectos en este set.</div>';
+      const fila = (key, color, etiqueta, n, arr)=>`
+        <span style="cursor:pointer;" onclick="zaToggleSetList('${key}')" title="Clic para desplegar">
+          <b style="color:${color};">●</b> ${etiqueta} <b style="color:#8A90A6;">▾</b></span><b>${n!=null?n:0}</b>`;
       return `<div class="za-res-card">
-      <div class="za-res-h">Sets de competidores</div>
+      <div class="za-res-h">Sets de competidores <span style="font-weight:400;font-size:10px;color:#8A90A6;">· clic en cada categoría para desplegar</span></div>
       <div class="za-res-sub">Directos = oferta primaria a comparar (mercado del predio). Primarios y secundarios = universo competitivo y demanda (zona 8 + ${ZA_STATE.perfil_label||''}).</div>
       <div class="za-kv">
-        <span><b style="color:#8B5CF6;">●</b> Directos (morado)</span><b>${c.n_directos!=null?c.n_directos:'N/D'}</b>
-        <span><b style="color:#0540F2;">●</b> Primarios (azul · 8 min)</span><b>${c.n_primarios!=null?c.n_primarios:'N/D'}</b>
-        <span><b style="color:#00B564;">●</b> Secundarios (verde)</span><b>${c.n_secundarios!=null?c.n_secundarios:'N/D'}</b>
+        ${fila('directos','#8B5CF6','Directos (morado)', c.n_directos, c.directos)}
+        ${fila('primarios','#0540F2','Primarios (azul · 8 min)', c.n_primarios, c.primarios)}
+        ${fila('secundarios','#00B564','Secundarios (verde)', c.n_secundarios, c.secundarios)}
       </div>
+      <div id="za-set-directos" class="za-valor-list" style="display:none;margin-top:8px;border-left:2px solid #8B5CF6;padding-left:8px;">${lista(c.directos)}</div>
+      <div id="za-set-primarios" class="za-valor-list" style="display:none;margin-top:8px;border-left:2px solid #0540F2;padding-left:8px;">${lista(c.primarios)}</div>
+      <div id="za-set-secundarios" class="za-valor-list" style="display:none;margin-top:8px;border-left:2px solid #00B564;padding-left:8px;">${lista(c.secundarios)}</div>
     </div>`; })()}
 
     <div class="za-res-card">
       <div class="za-res-h">Normatividad capturada</div>
-      <div class="za-kv">
-        <span>Usos permitidos</span><b>${zaND(n.usos)}</b>
-        <span>Densidad</span><b>${zaND(n.densidad)}${n.densidad!=null?' viv/ha':''}</b>
-        <span>Altura</span><b>${zaND(n.altura)}${n.altura!=null?' niveles':''}</b>
-        <span>CUS</span><b>${zaND(n.cus)}</b>
-        <span>COS</span><b>${zaND(n.cos)}</b>
-        <span>CAV</span><b>${zaND(n.cav)}</b>
-        <span>Estacionamiento</span><b>${zaND(n.estac)}</b>
-      </div>
+      ${(()=>{ /* ZA-3 · lo no capturado se dice tal cual (no N/D); infraestructura lista
+                  para la futura sección de producto óptimo normativo */
+        const nd2 = v => (v===null||v===undefined||v==='') ? '<span style="color:#8A90A6;font-weight:400;">sin capturar</span>' : v;
+        return `<div class="za-kv">
+        <span>Usos permitidos</span><b>${nd2(n.usos)}</b>
+        <span>Densidad</span><b>${nd2(n.densidad)}${n.densidad!=null?' viv/ha':''}</b>
+        <span>Altura</span><b>${nd2(n.altura)}${n.altura!=null?' niveles':''}</b>
+        <span>CUS</span><b>${nd2(n.cus)}</b>
+        <span>COS</span><b>${nd2(n.cos)}</b>
+        <span>CAV</span><b>${nd2(n.cav)}</b>
+        <span>Estacionamiento</span><b>${nd2(n.estac)}</b>
+      </div>`; })()}
     </div>
 
     <div class="za-res-card">
       <div class="za-res-h">Percepción de valor · ${proyectos.length} comparables</div>
-      ${proyectos.length ? `<div class="za-valor-list">${
-        proyectos.slice().sort((a,b)=>b.pm2-a.pm2).slice(0,12).map(p=>
-          `<div class="za-valor-row"><span>${p.name}</span><b>${zaMoney(p.pm2)}/m²</b></div>`).join('')
-      }</div>` : (()=>{ const vz=ajuste.valor_zona;
-        if(vz && vz.pm2){
-          return `<div class="za-res-sub">Sin comparables con precio dentro de la isócrona. El valor de zona se establece por <b>percepción de valor</b> (NSE y capacidad de pago de la demanda real): <b>${zaMoney(vz.pm2)}/m²</b> · ticket de referencia <b>${vz.ticket_ref_M!=null?'$'+vz.ticket_ref_M+'M':'N/D'}</b>.</div>`;
+      ${(()=>{ /* ZA-6 · límites, núcleo y mercado meta (todo del backend) */
+        const det = ajuste.percepcion_detalle || {};
+        const mm = det.mercado_meta || {};
+        const bloques = [];
+        if(det.pm2_mediana){
+          bloques.push(`<div class="za-kv">
+            <span>Límite inferior (P10)</span><b>${zaMoney(det.limite_inferior)}/m²</b>
+            <span>Límite superior (P90)</span><b>${zaMoney(det.limite_superior)}/m²</b>
+            <span>Núcleo del valor (P25–P75)</span><b>${det.banda_nucleo&&det.banda_nucleo[0]!=null?zaMoney(det.banda_nucleo[0])+' – '+zaMoney(det.banda_nucleo[1]):'—'}</b>
+            <span>Mediana</span><b>${zaMoney(det.pm2_mediana)}/m²</b>
+          </div>`);
         }
-        return '<div class="za-res-sub">N/D · sin comparables con precio dentro de la isócrona.</div>';
+        if(mm && (mm.nse || mm.ingreso_min)){
+          const perfiles = (mm.perfiles||[]).map(p=>p&&p.label?p.label:p).filter(Boolean).slice(0,3).join(' · ');
+          const etapas = (mm.etapas_top||[]).map(e=>e.etapa).slice(0,3).join(', ');
+          bloques.push(`<div class="za-res-note" style="margin-top:8px;">
+            <b>Mercado meta que genera demanda aquí:</b> NSE <b>${mm.nse||'—'}</b>
+            ${mm.ingreso_min?` · ingreso $${Math.round(mm.ingreso_min).toLocaleString('es-MX')}–$${Math.round(mm.ingreso_max||mm.ingreso_min).toLocaleString('es-MX')}/mes`:''}
+            ${mm.ticket_ancla?` · ticket ancla ${mm.ticket_ancla}`:''}
+            ${etapas?`<br>Etapas de vida dominantes: ${etapas}`:''}
+            ${perfiles?`<br>Perfiles: ${perfiles}`:''}
+          </div>`);
+        }
+        if(det.nota) bloques.push(`<div class="za-res-sub" style="margin-top:6px;">${det.nota}</div>`);
+        if(proyectos.length){
+          bloques.push(`<div class="za-valor-list" style="margin-top:8px;">${
+            proyectos.slice().sort((a,b)=>b.pm2-a.pm2).slice(0,12).map(p=>
+              `<div class="za-valor-row"><span>${p.name}</span><b>${zaMoney(p.pm2)}/m²</b></div>`).join('')}</div>`);
+        } else if(!det.pm2_mediana){
+          const vz = ajuste.valor_zona;
+          bloques.push(vz && vz.pm2
+            ? `<div class="za-res-sub">Sin comparables dentro de la isócrona. El valor se establece por <b>percepción de valor</b> (NSE y capacidad de pago): <b>${zaMoney(vz.pm2)}/m²</b> · ticket de referencia <b>${vz.ticket_ref_M!=null?'$'+vz.ticket_ref_M+'M':'—'}</b>.</div>`
+            : '<div class="za-res-sub">Sin comparables con precio dentro de la isócrona.</div>');
+        }
+        return bloques.join('');
       })()}
     </div>`;
 }
@@ -6878,6 +6954,67 @@ function zaUpdateChrome(z){
 }
 
 /* Aplica los metadatos de zona (isócronas + percepción) que devuelve el backend */
+/* ══════ F-B · CAPAS DE INFORMACIÓN (NSE por AGEB · Percepción de valor $/m²) ══════
+   Un solo juego de constructores; cada mapa (zona-análisis y MAPA maestro) tiene su
+   propio almacén de capas encendidas. Los datos vienen SIEMPRE del backend
+   (_zona_analisis.agebs_geo con ring/attrs, perception.proyectos + stats_robustas). */
+let ZA_CAPAS = {nse:null, pv:null};
+let MAPA_CAPAS = {nse:null, pv:null};
+const NSE_CAPA_COLORS = {1:'#0540F2',2:'#3B82F6',3:'#00B564',4:'#84CC16',5:'#F59E0B',6:'#F97316',7:'#EF4444'};
+
+function buildCapaNse(){
+  if(typeof L==='undefined') return null;
+  const za = (ZONE_DATA[CURRENT_ZONE]||{})._zona_analisis || {};
+  const items = (za.agebs_geo||[]).filter(g=>g && g.ring && g.ring.length>3);
+  if(!items.length) return null;
+  const grp = L.layerGroup();
+  items.forEach(g=>{
+    const color = NSE_CAPA_COLORS[g.nse_rank] || '#94A3B8';
+    try{
+      L.polygon(g.ring.map(c=>[c[1],c[0]]), {color, weight:0.8, fillColor:color, fillOpacity:0.30})
+        .bindPopup(`NSE <b>${g.nse_txt||'N/D'}</b>${g.area_km2?` · ${g.area_km2} km²`:''}`)
+        .addTo(grp);
+    }catch(e){}
+  });
+  return grp;
+}
+
+function buildCapaPv(){
+  if(typeof L==='undefined') return null;
+  const za = (ZONE_DATA[CURRENT_ZONE]||{})._zona_analisis || {};
+  const p = za.perception || {};
+  const pts = (p.proyectos||[]).filter(x=>x && x.pm2 && x.lat!=null);
+  if(!pts.length) return null;
+  const sr = p.stats_robustas || {};
+  const grp = L.layerGroup();
+  pts.forEach(x=>{
+    const c = (sr.p75!=null && x.pm2>=sr.p75) ? '#8B5CF6'
+            : (sr.p25!=null && x.pm2<=sr.p25) ? '#84CC16' : '#0540F2';
+    try{
+      L.circleMarker([x.lat,x.lng], {radius:7, color:c, fillColor:c, fillOpacity:0.75, weight:1.5})
+        .bindPopup(`<b>${x.name||''}</b><br>$${Math.round(x.pm2).toLocaleString()}/m²`)
+        .addTo(grp);
+    }catch(e){}
+  });
+  return grp;
+}
+
+function _toggleCapaEn(map, store, k, btn){
+  if(!map || typeof L==='undefined') return;
+  if(store[k]){ try{ map.removeLayer(store[k]); }catch(e){} store[k]=null; if(btn) btn.classList.remove('on'); return; }
+  const layer = (k==='nse') ? buildCapaNse() : buildCapaPv();
+  if(!layer){ if(btn && !btn.dataset.nd){ btn.dataset.nd='1'; btn.textContent += ' · sin datos'; } return; }
+  layer.addTo(map); store[k]=layer; if(btn) btn.classList.add('on');
+}
+function zaToggleCapa(k, btn){ _toggleCapaEn(zaMap, ZA_CAPAS, k, btn); }
+function mapaToggleCapa(k, btn){ _toggleCapaEn(leafMap, MAPA_CAPAS, k, btn); }
+
+/* ZA-5 · despliegue de la lista de cada set de competidores */
+function zaToggleSetList(setKey){
+  const el = document.getElementById('za-set-'+setKey);
+  if(el) el.style.display = (el.style.display==='none' || !el.style.display) ? 'block' : 'none';
+}
+
 function zaApplyBackendPerception(za){
   if(!za) return;
   ZA_STATE.perfil_label = za.perfil_label;
@@ -6900,8 +7037,13 @@ function zaApplyBackendPerception(za){
     mercados: p.mercados, competidores: comp,
     valor_zona: p.valor_zona || null,
     sin_valor_percibido: p.sin_valor_percibido || false,
-    nota_valor: p.nota_valor || null
+    nota_valor: p.nota_valor || null,
+    stats_robustas: p.stats_robustas || null,          // ZA-7 · métricas robustas (backend)
+    percepcion_detalle: za.percepcion_detalle || null  // ZA-6 · bandas + mercado meta (backend)
   };
+  // F-B · capas disponibles y estado limpio al re-procesar
+  ZA_CAPAS = {nse:null, pv:null};
+  const capasBar = document.getElementById('za-capas'); if(capasBar) capasBar.style.display='flex';
   // Zona de influencia real (morado · competidores DIRECTOS · mercado del predio).
   // Se dibuja DESPUÉS de las isócronas y se trae al frente para que sea visible.
   if(p.zona_poligono){

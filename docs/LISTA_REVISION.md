@@ -940,3 +940,29 @@ VALIDADO: py_compile · node --check · unitarias (identidad 2 casos, stats con 
   registradas) · verify_all 8/8 + render 10/10 (zona en vivo). PENDIENTES POR SALUD DEL
   API (loops corriendo, se anotan al caer): dump de campos VVV/DI (gate de RES-4/INV-5/
   6/7/P1/P3), verify_interactive 16/16, GDL Jalisco.
+
+## F-B. Zona de Análisis (ZA-4/5/6/7) + Mapa maestro (MAPA-1) — [x] HECHO (6 jul 2026)
+BACKEND:
+  • parse_di_geometria EXTENDIDO (aditivo): cada AGEB trae ahora `ring` (polígono del
+    bloque mayor, decimado ≤60 vértices), `area_km2` (shoelace equirectangular) y `attrs`
+    (pares etiqueta|valor publicados por la base en el KMZ, cap 25) → capas del mapa y
+    base para densidad/flotante cuando los campos existan. Consumidores previos intactos.
+  • derive_percepcion_detalle (ZA-6): límites P10/P90, núcleo P25-P75, mediana/MAD,
+    outliers que NO definen la zona, y MERCADO META (NSE + ingreso + ticket ancla +
+    perfiles + etapas de vida top de la pirámide real). En _zona_analisis.percepcion_detalle.
+FRONT (solo muestra; datos 100% backend):
+  • ZA-7: tabla "Zona de influencia real" con MEDIANA/MAD/CV robusto/núcleo P25-P75/
+    outliers; SIN oferta → valor por cascada con origen explícito. CERO 'N/D' (validado
+    en harness con ambos casos). Normatividad: 'sin capturar' en vez de N/D (ZA-3 infra).
+  • ZA-5: sets de competidores DESPLEGABLES al clic (lista por set con $/m², top 20).
+  • ZA-6: tarjeta de percepción con límites inferior/superior, núcleo, mediana y mercado
+    meta descrito (NSE, ingreso, etapas, perfiles).
+  • ZA-4 parcial: barra de CAPAS en zona-análisis (NSE por AGEB · Percepción $/m²) +
+    nota de propósito de los anillos (sin revelar método). Captable pendiente de P2.
+  • MAPA-1: mapa maestro 72vh con capas encendibles (misma fábrica de capas:
+    buildCapaNse/buildCapaPv · NSE coroplético por AGEB del KMZ · percepción por
+    cuantiles P25/P75 en marcadores). zaClearLayers limpia capas al reprocesar.
+VALIDADO: py_compile · node --check · unitarias (attrs genéricos, percepcion_detalle 2
+  casos) · harness zaRenderResults CON y SIN oferta → cero N/D, ZA-5/6 presentes ·
+  tplMapa con capas y 72vh · verify_all 8/8 + render 10/10 (payload en vivo).
+  PENDIENTE (mismo gate API): dump de campos, verify_interactive, GDL — loops corriendo.
