@@ -190,3 +190,19 @@ hotel (prefijo por uso).
 | `GET /api/od/status?estado&muni` | Diagnóstico de la cadena del ancla (local/autofetch/errores + marginales top) |
 | Constantes env | `DATARIA_HUFF_EXP=2 · DATARIA_CAPTABLE_MIN_TOPE=30 · DATARIA_UMBRAL_EXTRANJERO=0.03 · DATARIA_OD_URL_TPL · DATARIA_OD_AUTOFETCH=1 · DATARIA_OD_DIR · DATARIA_OD_COBERTURA_MIN=0.6` |
 | `datos/od_censo/<estado>.csv` | Ancla censal canónica versionada (ORIGEN, DESTINO, MOTIVO, VIAJES) |
+
+## 8g · Movilidad (zone_data.movilidad · PEAT-1/TRAF-1 · solo crece)
+| Variable | Tipo | Descripción |
+|---|---|---|
+| movilidad.peatonal.estado | str | ok · error · (nunca inventar) |
+| movilidad.peatonal.minutos | int | contorno peatonal (default 10 · env DATARIA_PEAT_MIN) |
+| movilidad.peatonal.fuente | str | valhalla_pedestrian_osm (red vial real) |
+| movilidad.peatonal.area_km2 | float | área del alcance caminando |
+| movilidad.peatonal.poligono | ring | anillo [lng,lat] para el mapa |
+| movilidad.peatonal.hogares / poblacion | int/N-D | masa REAL de AGEBs (KMZ DI) con centroide dentro; N/D si la base no publica masa |
+| movilidad.peatonal.n_agebs / masa_fuente | int/str | transparencia de la masa (hogares_kmz · poblacion_kmz) |
+| movilidad.peatonal.flujo_peatonal.estado | str | proximamente (sin fuente gratuita observada; DENUE+censo lo modelará) |
+| movilidad.vehicular.estado | str | ok · proximamente (sin DATARIA_TOMTOM_KEY) · error |
+| movilidad.vehicular.indice_fluidez | float | mediana velocidad_actual/flujo_libre (1.0=libre) · pin+4 cardinales ~1 km |
+| movilidad.vehicular.velocidad_kmh / velocidad_libre_kmh | float | medianas robustas (km/h) |
+| movilidad.vehicular.n_puntos / fuente / nota | — | tomtom_flow · instantánea, no promedio histórico |

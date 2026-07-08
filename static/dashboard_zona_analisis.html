@@ -6509,6 +6509,7 @@ function tplZonaAnalisis(z){
         </div>
         <div id="za-comparar-out" style="margin-top:8px;"></div>
         <div id="za-captable-out" style="margin-top:8px;"></div>
+        <div id="za-movilidad-out" style="margin-top:8px;"></div>
 
         <div class="za-results" id="za-results"></div>
       </div>
@@ -7099,6 +7100,7 @@ async function zaRunAnalysis(){
 
     // CAPTABLE · pintar orígenes del mercado captable si el análisis lo incluyó
     try{ zaRenderCaptable(data.zone_data.mercado_captable); }catch(e){}
+    try{ zaRenderMovilidad(data.zone_data.movilidad); }catch(e){}
 
     zaShowLoading(false);
     zaSetStatus('Tablero actualizado con datos de la zona.', 'ok');
@@ -7376,6 +7378,54 @@ function zaRenderCaptable(mc){
     <div class="tbl-wrap"><table style="font-size:11px;"><thead><tr><th>NSE</th><th>Municipio</th><th>Dist. mediana</th><th>Hogares est.</th><th>Share (Huff)</th></tr></thead><tbody>${filas}</tbody></table></div>
     ${extHtml}
     <div class="za-res-sub" style="margin-top:6px;">${mc.nota||''}</div>
+  </div>`;
+}
+
+/* MOVILIDAD · PEAT-1 alcance peatonal + TRAF-1 congestión (backend calcula, front pinta) */
+let ZA_PEAT_LAYER = null;
+function zaRenderMovilidad(mv){
+  const out = document.getElementById('za-movilidad-out');
+  if(!out) return;
+  if(ZA_PEAT_LAYER && zaMap){ try{ zaMap.removeLayer(ZA_PEAT_LAYER); }catch(e){} ZA_PEAT_LAYER=null; }
+  if(!mv){ out.innerHTML=''; return; }
+  const p = mv.peatonal || {};
+  const v = mv.vehicular || {};
+  let peatHtml = '';
+  if(p.estado === 'ok'){
+    if(p.poligono && zaMap && typeof L!=='undefined'){
+      try{
+        ZA_PEAT_LAYER = L.polygon(p.poligono.map(c=>[c[1],c[0]]),
+          {color:'#10B981', fill:true, fillOpacity:0.06, weight:2, dashArray:'4 4'}).addTo(zaMap);
+      }catch(e){}
+    }
+    const fmt = x => x!=null ? x.toLocaleString('es-MX') : 'N/D';
+    peatHtml = `<div style="display:flex;gap:14px;flex-wrap:wrap;">
+      <div><div class="za-res-sub">Alcance (${p.minutos} min caminando)</div><div style="font-weight:700;">${p.area_km2!=null?p.area_km2+' km²':'N/D'}</div></div>
+      <div><div class="za-res-sub">Hogares dentro</div><div style="font-weight:700;">${fmt(p.hogares)}</div></div>
+      <div><div class="za-res-sub">Población dentro</div><div style="font-weight:700;">${fmt(p.poblacion)}</div></div>
+      <div><div class="za-res-sub">AGEBs</div><div style="font-weight:700;">${p.n_agebs!=null?p.n_agebs:'N/D'}</div></div>
+    </div>
+    <div class="za-res-sub" style="margin-top:4px;">Red vial peatonal real (OSM)${p.masa_fuente?` · masa: ${p.masa_fuente}`:''} · Flujo peatonal: <span style="color:var(--amber,#F59E0B);">${(p.flujo_peatonal&&p.flujo_peatonal.estado)==='proximamente'?'próximamente':''}</span></div>`;
+  } else {
+    peatHtml = `<div class="za-res-sub" style="color:var(--amber,#F59E0B);">Alcance peatonal: ${p.estado==='error'?('no disponible ('+(p.detalle||'')+')'):'próximamente'}</div>`;
+  }
+  let vehHtml = '';
+  if(v.estado === 'ok'){
+    const idx = v.indice_fluidez;
+    const col = idx==null ? '#8A90A6' : (idx>=0.8 ? 'var(--green)' : (idx>=0.55 ? 'var(--amber,#F59E0B)' : '#EF4444'));
+    vehHtml = `<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;">
+      <div><div class="za-res-sub">Índice de fluidez</div><div style="font-weight:700;color:${col};">${idx!=null?idx:'N/D'}</div></div>
+      <div><div class="za-res-sub">Velocidad actual</div><div style="font-weight:700;">${v.velocidad_kmh!=null?v.velocidad_kmh+' km/h':'N/D'}</div></div>
+      <div><div class="za-res-sub">Flujo libre</div><div style="font-weight:700;">${v.velocidad_libre_kmh!=null?v.velocidad_libre_kmh+' km/h':'N/D'}</div></div>
+      <div><div class="za-res-sub">Puntos medidos</div><div style="font-weight:700;">${v.n_puntos!=null?v.n_puntos:'N/D'}</div></div>
+    </div>
+    <div class="za-res-sub" style="margin-top:4px;">${v.nota||''}</div>`;
+  } else {
+    vehHtml = `<div class="za-res-sub" style="margin-top:8px;color:var(--amber,#F59E0B);">Tráfico vehicular: ${v.estado==='proximamente'?'próximamente':('no disponible'+(v.detalle?(' ('+v.detalle+')'):''))}</div>`;
+  }
+  out.innerHTML = `<div class="za-res-card">
+    <div class="za-res-h">Movilidad de la zona <span style="font-weight:400;font-size:10px;color:#8A90A6;">peatonal ${p.fuente||''}${v.fuente?(' · vehicular '+v.fuente):''}</span></div>
+    ${peatHtml}${vehHtml}
   </div>`;
 }
 

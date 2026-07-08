@@ -1214,3 +1214,28 @@ verify_all 8/8 + render 10/10 tras el blindaje.
   bloqueado localmente). Producción usa la cadena; validar en Safari tras el push.
 - Validación: py_compile OK · node --check OK · harness N3 "INVARIANCIA COMPLETA ✓✓✓" · checks de
   directivas OK. Revisada dos veces.
+
+## 2026-07-08 · LOTE MOVILIDAD (PEAT-1 + TRAF-1) + ANTI-502 (GO de Héctor)
+- **Contexto**: de Predik se esperaban 4 capacidades. Isócronas (Valhalla+cadena) y OD (ancla censal
+  INEGI) ya reemplazadas. Este lote cubre tráfico peatonal y vehicular.
+- **PEAT-1**: `fetch_isochrone_peatonal` (Valhalla costing=pedestrian, POST compacto, verificado EN
+  VIVO 8 jul: 200 OK Polygon) + `derive_movilidad`: masa REAL dentro del alcance (AGEBs del KMZ con
+  centroide en el polígono, `_attr_num` con las MISMAS regex del captable — regla 7). Integridad:
+  masa solo si ≥50% de AGEBs la publica; si no, N/D (probado). Flujo peatonal observado NO existe
+  gratuito → `proximamente` declarado (regla de Héctor: nunca N/A mudo).
+- **TRAF-1**: TomTom Traffic Flow key-gated (`DATARIA_TOMTOM_KEY`); pin+4 cardinales ~1 km; MEDIANAS
+  robustas de velocidad e índice de fluidez; puntos sin vialidad medida se OMITEN (no se inventan).
+  Sin key → `proximamente` con instrucción. Probado con mocks: medianas exactas (35.0/57.5/0.65).
+- **ANTI-502**: `fetch_isochrone_fuente` reintenta 2 veces por fuente con pausa 0.8s (fallos
+  transitorios de Valhalla público / Render despertando); RuntimeError (sin api key) NO se reintenta.
+  El 502 solo puede ocurrir si TODAS las fuentes fallan DOS veces. Probado con mocks (3 casos).
+- **Cableado**: `zona_procesar` → `payload.zone_data.movilidad` con cliente httpx propio (timeout 25)
+  y NUNCA bloqueante: si movilidad falla, el análisis sigue completo (error declarado en errors).
+- **Front**: tarjeta "Movilidad de la zona" (`za-movilidad-out` + `zaRenderMovilidad`): solo pinta;
+  capa peatonal verde punteada en el mapa; N/D y próximamente declarados. Probados 4 estados
+  (ok completo · sin masa/sin key · error · payload nulo) sin null/undefined visibles.
+- **Verificación de producción**: sigue el código VIEJO (error muestra GET `?json=`+`400`): los
+  commits 4c4b91b y 5a9d7d8 aún NO estaban pusheados al verificar. El fix del 502 va en este push.
+- Validación: py_compile OK · unit derive_movilidad (3 escenarios) OK · unit anti-502 (3 casos) OK ·
+  node --check OK · tarjeta 4 estados OK · regresión N3 9 secciones idéntica entre fuentes OK.
+  Catálogo 8g añadido (solo crece). Revisada dos veces.

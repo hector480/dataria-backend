@@ -7,6 +7,7 @@ Endpoints:  GET /health   ·   POST /api/zona/analyze
 
 # ╔══════════════ SECCIÓN 1: DERIVACIÓN DIGO/DPO (dpo) ══════════════╗
 import statistics
+import asyncio as _aio
 import math
 import random
 import re
@@ -5737,15 +5738,139 @@ async def fetch_isochrone_fuente(client: httpx.AsyncClient, lat: float, lng: flo
         intentos = ["predik"]
     errores = []
     for i, f in enumerate(intentos):
-        try:
-            geo = await ISO_PROVIDERS[f](client, lat, lng, minutes)
-            nota = None
-            if i > 0:
-                nota = (f"{' · '.join(errores)[:120]} · isócrona generada por {f}")
-            return geo, f, nota
-        except Exception as e:
-            errores.append(f"{f}: {str(e)[:60]}")
+        # ANTI-502: 2 intentos por fuente con pausa breve — cubre fallos TRANSITORIOS
+        # (Valhalla público con carga puntual, Predik/PRSP despertando en Render). El 502
+        # solo puede ocurrir si TODAS las fuentes fallan DOS veces cada una.
+        for intento in range(2):
+            try:
+                geo = await ISO_PROVIDERS[f](client, lat, lng, minutes)
+                nota = None
+                if i > 0:
+                    nota = (f"{' · '.join(errores)[:120]} · isócrona generada por {f}")
+                return geo, f, nota
+            except Exception as e:
+                if intento == 0 and not isinstance(e, RuntimeError):
+                    await _aio.sleep(0.8)   # RuntimeError = sin api key: reintentar no ayuda
+                    continue
+                errores.append(f"{f}: {str(e)[:60]}")
+                break
     raise RuntimeError(" · ".join(errores)[:220])
+
+
+# ════════════ MOVILIDAD · reemplazo de las capas de tráfico de Predik ════════════
+# Directiva de Héctor (8 jul 2026): de Predik se esperaban origen-destino, isócronas y
+# tráfico VEHICULAR y PEATONAL. OD e isócronas ya están reemplazados (censo INEGI + cadena
+# multi-proveedor). Aquí las dos capas de tráfico, con integridad declarada:
+#   • PEAT-1 · Alcance peatonal: isócrona pedestrian de Valhalla (red vial OSM REAL, sin
+#     key · POST verificado en vivo 8 jul 2026: 200 OK, Polygon) + masa demográfica REAL
+#     (AGEBs del KMZ del DI cuyo centroide cae dentro). El FLUJO peatonal observado no
+#     existe en fuente gratuita (core de pago de Placer/Predik) → "proximamente"
+#     declarado; se modelará con atractores DENUE y se calibrará si Predik regresa.
+#   • TRAF-1 · Tráfico vehicular: TomTom Traffic Flow (tier gratuito) en el pin + 4
+#     puntos cardinales (~1 km); MEDIANAS robustas de velocidad actual vs flujo libre.
+#     Sin DATARIA_TOMTOM_KEY → "proximamente" (nunca inventar).
+PEAT_MINUTOS = int(os.environ.get("DATARIA_PEAT_MIN", "10"))
+_TRAF_OFFSET_KM = 1.0
+
+
+async def fetch_isochrone_peatonal(client: httpx.AsyncClient, lat: float, lng: float,
+                                   minutes: int = PEAT_MINUTOS) -> Dict:
+    r = await client.post(f"{VALHALLA_BASE}/isochrone",
+                          json={"locations": [{"lat": lat, "lon": lng}],
+                                "costing": "pedestrian",
+                                "contours": [{"time": minutes}], "polygons": True,
+                                "denoise": 0.3},
+                          headers={"User-Agent": "Dataria/2.0 (contacto@prosperia.mx)"})
+    r.raise_for_status()
+    return _parse_valhalla_iso(r.json(), minutes)
+
+
+async def _tomtom_flow_punto(client: httpx.AsyncClient, lat: float, lng: float) -> Dict:
+    r = await client.get(
+        "https://api.tomtom.com/traffic/services/4/flowSegmentData/absolute/10/json",
+        params={"point": f"{lat},{lng}", "key": TOMTOM_KEY, "unit": "KMPH"})
+    r.raise_for_status()
+    d = (r.json() or {}).get("flowSegmentData") or {}
+    cs, ff = d.get("currentSpeed"), d.get("freeFlowSpeed")
+    if cs is None or not ff:
+        raise ValueError("flujo sin velocidades")
+    return {"actual": float(cs), "libre": float(ff),
+            "confianza": d.get("confidence"), "frc": d.get("frc")}
+
+
+async def derive_movilidad(client: httpx.AsyncClient, lat: float, lng: float,
+                           agebs_geo: Optional[List[Dict]]) -> Dict[str, Any]:
+    """Capas de movilidad del payload. TODO cálculo aquí (regla 2); el front solo pinta.
+    Cada capa declara estado: ok · proximamente (falta ruta de dato) · error."""
+    out: Dict[str, Any] = {"peatonal": None, "vehicular": None}
+    # ── PEAT-1 · alcance peatonal + masa real dentro ──
+    try:
+        geo = await fetch_isochrone_peatonal(client, lat, lng)
+        ring = geo["coordinates"][0]
+        peat: Dict[str, Any] = {
+            "estado": "ok", "minutos": PEAT_MINUTOS, "fuente": "valhalla_pedestrian_osm",
+            "area_km2": _area_ring_km2(ring), "poligono": ring,
+            "hogares": None, "poblacion": None, "n_agebs": 0, "masa_fuente": None,
+            "flujo_peatonal": {"estado": "proximamente",
+                               "nota": ("Flujo peatonal observado no disponible en fuente "
+                                        "gratuita; se modelará con atractores DENUE "
+                                        "(token pendiente) y ancla censal.")},
+        }
+        dentro = [g for g in (agebs_geo or [])
+                  if g.get("lng") is not None and g.get("lat") is not None
+                  and _point_in_ring(g["lng"], g["lat"], ring)]
+        peat["n_agebs"] = len(dentro)
+        if dentro:
+            hogs = [_attr_num(g.get("attrs"), _RE_MASA_HOG) for g in dentro]
+            pobs = [_attr_num(g.get("attrs"), _RE_MASA_POB, excl=_RE_EXTRANJERO)
+                    for g in dentro]
+            hogs = [h for h in hogs if h]
+            pobs = [p for p in pobs if p]
+            # Integridad: masa solo si la MAYORÍA de AGEBs dentro la publica; si no, N/D
+            if len(hogs) >= len(dentro) * 0.5:
+                peat["hogares"] = round(sum(hogs))
+                peat["masa_fuente"] = "hogares_kmz"
+            if len(pobs) >= len(dentro) * 0.5:
+                peat["poblacion"] = round(sum(pobs))
+                peat["masa_fuente"] = peat["masa_fuente"] or "poblacion_kmz"
+        out["peatonal"] = peat
+    except Exception as e:
+        out["peatonal"] = {"estado": "error", "detalle": str(e)[:120]}
+    # ── TRAF-1 · congestión vehicular (key-gated · nunca inventar) ──
+    if not TOMTOM_KEY:
+        out["vehicular"] = {"estado": "proximamente",
+                            "nota": ("Tráfico vehicular en tiempo real vía TomTom Traffic "
+                                     "(tier gratuito). Se activa al definir "
+                                     "DATARIA_TOMTOM_KEY en Render.")}
+        return out
+    try:
+        dlat = _TRAF_OFFSET_KM / 111.32
+        dlng = _TRAF_OFFSET_KM / (111.32 * math.cos(math.radians(lat)))
+        puntos = [(lat, lng), (lat + dlat, lng), (lat - dlat, lng),
+                  (lat, lng + dlng), (lat, lng - dlng)]
+        flujos = []
+        for pla, pln in puntos:
+            try:
+                flujos.append(await _tomtom_flow_punto(client, pla, pln))
+            except Exception:
+                continue   # punto sin vialidad medida cerca: se omite, no se inventa
+        if not flujos:
+            out["vehicular"] = {"estado": "error",
+                                "detalle": "TomTom sin segmentos medidos en la zona"}
+            return out
+        ratios = [f["actual"] / f["libre"] for f in flujos if f["libre"]]
+        out["vehicular"] = {
+            "estado": "ok", "fuente": "tomtom_flow", "n_puntos": len(flujos),
+            "velocidad_kmh": round(statistics.median(f["actual"] for f in flujos), 1),
+            "velocidad_libre_kmh": round(statistics.median(f["libre"] for f in flujos), 1),
+            # 1.0 = circulación libre · 0.5 = al 50% de la velocidad de flujo libre
+            "indice_fluidez": round(statistics.median(ratios), 2) if ratios else None,
+            "nota": ("Medianas robustas sobre pin + 4 puntos cardinales (~1 km). "
+                     "Instantánea al momento del análisis, no promedio histórico."),
+        }
+    except Exception as e:
+        out["vehicular"] = {"estado": "error", "detalle": str(e)[:120]}
+    return out
 
 
 def _area_ring_km2(ring: List[List[float]]) -> Optional[float]:
@@ -6328,6 +6453,15 @@ async def zona_procesar(req: ZonaRequest):
                 "Mercado captable ACTIVO (modelo Huff v1) · orígenes en Zona de Análisis"
     except Exception as e:
         errors["mercado_captable"] = str(e)[:120]
+    # MOVILIDAD (PEAT-1/TRAF-1) · capas de tráfico del pin — reemplazo de las capas de
+    # Predik. Cliente propio y NUNCA bloqueante: si falla, el análisis sigue completo.
+    try:
+        async with httpx.AsyncClient(timeout=25) as _mcli:
+            payload["zone_data"]["movilidad"] = await derive_movilidad(
+                _mcli, req.lat, req.lng, agebs_geo)
+    except Exception as e:
+        payload["zone_data"]["movilidad"] = None
+        errors["movilidad"] = str(e)[:120]
     payload["errors"] = errors
     # ARQ-MODULAR · dejar el análisis en caché para servir secciones independientes
     # (/api/zona/seccion) y devolver la llave al front (= identidad ZA-8).
