@@ -1239,3 +1239,36 @@ verify_all 8/8 + render 10/10 tras el blindaje.
 - Validación: py_compile OK · unit derive_movilidad (3 escenarios) OK · unit anti-502 (3 casos) OK ·
   node --check OK · tarjeta 4 estados OK · regresión N3 9 secciones idéntica entre fuentes OK.
   Catálogo 8g añadido (solo crece). Revisada dos veces.
+
+## 2026-07-08 · LOTE ZONA-REGLAS (reporte de Héctor: "la zona no sigue las reglas completas")
+- **Diagnóstico con datos reales de producción (ZMM Centro)**: las reglas SÍ corrían, pero con
+  la fuente Valhalla el anillo base de 8 min quedó corto (11 proyectos vs ~40 de la era Predik;
+  media $60.7k vs ancla ~$74k) → detect_markets con muestra chica degeneró (k=3 forzado, zona
+  morada = hull de 7 vértices). VP peor: 1 proyecto a 8 min. CAUSA RAÍZ: el pipeline recorta
+  isócronas generosas al mercado del pin, pero NO puede crecer una isócrona corta; además la
+  señal NSE del clustering estaba APAGADA (pendiente prioritario #2: SIGNAL_WEIGHTS.nse=0).
+  Se DESCARTÓ el factor de tiempo por fuente: la calibración en vivo (Z8/Z10/Z12 y V8/V10/V12
+  contra PRSP real) mostró razones no uniformes entre anclas (ZMM ~1.15 vs VP ~1.6): un factor
+  único sería dato inventado.
+- **FIX 1 · ZONA-MUESTRA (soporte mínimo)**: si el anillo base trae n_zona < ZONA_MUESTRA_MIN
+  (15, env DATARIA_ZONA_MUESTRA_MIN) y el perfil tiene anillo mayor, la percepción se evalúa
+  sobre el anillo MAYOR con ampliación DECLARADA (`zona_base_ampliada` + motivo). Con fuentes
+  generosas (Predik en anclas: ~40 a 8 min) NO se activa → comportamiento validado intacto.
+- **FIX 2 · Señal NSE activada (pendiente #2 cerrado)**: nse_rank por proyecto = AGEB
+  georreferenciado MÁS CERCANO (agebs_geo real del KMZ del DI); SIGNAL_WEIGHTS.nse=0.15 con
+  renormalización automática si falta geometría (no se inventa). La barrera de mercado ve ya
+  las señales completas de la regla: física (pos), percepción (pm²/ticket) y NSE.
+- **Validación de anclas con datos reales (PRSP en vivo)**: ZMM Z12: 65/65 proyectos con
+  nse_rank asignado; clustering estable k=1; zona = polígono de 151 vértices; mediana $80.5k →
+  percepción B se mantiene (producción hoy ya da "B · por percepción"). VP: base 8 min n=1 →
+  ampliación → mercado del pin con soporte (k=3, mediana $92.6k). Sin hulls degenerados.
+- **FIX 3 · Front sin opciones de fuente**: eliminado el botón "⚖ Comparar fuentes de isócrona"
+  + `zaCompararFuentes` + `za-comparar-out` (el endpoint /api/zona/isocrona_comparar queda para
+  QA interna). Verificado además que producción YA sirve el HTML sin selector ni checkbox
+  (`za-iso-fuente`/`za-captable` ausentes en /tablero servido): lo que Héctor vio fue el CACHÉ
+  de Safari (el /tablero ya manda Cache-Control no-cache; requiere una recarga forzada ⌘⇧R una
+  vez).
+- Validación: py_compile OK · node --check OK · regresión N3 (9 secciones idénticas entre
+  fuentes) OK · checks integrales de directivas OK · anclas ZMM/VP contra PRSP real OK.
+  Pendiente post-push: verificación en producción de ZMM y VP (n_zona, método, vértices de
+  zona, dominante) — bloqueada hasta el push. Revisada dos veces.

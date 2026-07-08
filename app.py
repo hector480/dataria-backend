@@ -254,7 +254,15 @@ def _convex_hull(points: List[List[float]]) -> List[List[float]]:
 #   4. La zona de influencia real = cluster MÁS COMPATIBLE CON EL PIN (centroide = pin).
 #
 # Pesos de las señales (renormalizados si alguna señal no está disponible → integridad).
-SIGNAL_WEIGHTS = {"ticket": 0.40, "pm2": 0.30, "pos": 0.30, "nse": 0.0}  # nse=0 hasta tener geometría
+# nse ACTIVADO (pendiente prioritario #2 · 8 jul 2026): el nse_rank por proyecto se toma del
+# AGEB georreferenciado más cercano (agebs_geo del KMZ del DI). Sin geometría, el peso se
+# renormaliza solo (integridad). La barrera de mercado ahora ve las 4 señales de la regla:
+# física (pos), percepción ($/m² y ticket) y NSE.
+SIGNAL_WEIGHTS = {"ticket": 0.40, "pm2": 0.30, "pos": 0.30, "nse": 0.15}
+# Soporte mínimo de muestra para detección de mercados: con menos proyectos el clúster
+# degenera (zona de pocos vértices). Si el anillo base trae menos, la percepción se evalúa
+# sobre el anillo MAYOR del perfil y se declara (el recorte al mercado del pin sigue).
+ZONA_MUESTRA_MIN = int(os.environ.get("DATARIA_ZONA_MUESTRA_MIN", "15"))
 CLUSTER_MASA_MIN = 3       # proyectos mínimos por cluster para considerarlo un mercado
 GAP_MIN = 0.85             # separación de medias normalizada mínima
 VAR_EXPLAINED_MIN = 0.35   # proporción de varianza explicada por la partición mínima
@@ -652,6 +660,16 @@ def value_perception_adjust(resumen: List[Dict], base_ring: List[List[float]],
                               "nse_rank": None})  # nse_rank: gancho NSE (N/D hasta tener geometría)
 
     dentro = [p for p in proyectos if _point_in_ring(p["lng"], p["lat"], base_ring)]
+    # NSE DEL ENTORNO por proyecto (señal de barrera de mercado · pendiente #2): nse_rank del
+    # AGEB georreferenciado MÁS CERCANO (dato real del KMZ del DI). Sin geometría → None y
+    # el peso de la señal se renormaliza en _build_feature_vectors (no se inventa).
+    _geo_pts = [g for g in (agebs_geo or []) if g.get("nse_rank") is not None
+                and g.get("lng") is not None and g.get("lat") is not None]
+    if _geo_pts:
+        for p in dentro:
+            g = min(_geo_pts,
+                    key=lambda q: (q["lng"] - p["lng"]) ** 2 + (q["lat"] - p["lat"]) ** 2)
+            p["nse_rank"] = g["nse_rank"]
     precios = [p["pm2"] for p in dentro]
 
     out = {
@@ -6339,6 +6357,30 @@ async def zona_procesar(req: ZonaRequest):
                        {"n_total": 0, "n_zona": 0, "media": None, "sd": None, "cv": None,
                         "barrera": False, "metodo": "isocrona", "cobertura_pct": 0,
                         "motivo": "No disponible", "proyectos": [], "cluster_names": None})
+    # ZONA-MUESTRA · SOPORTE MÍNIMO (causa raíz del defecto reportado el 8 jul 2026): la
+    # detección de mercados recorta una isócrona GENEROSA al mercado del pin, pero no puede
+    # crecer una isócrona corta — con muestra chica el clúster degenera y la zona sale mal
+    # (ZMM con Valhalla: 11 proyectos → hull de 7 vértices). Si el anillo base trae menos de
+    # ZONA_MUESTRA_MIN proyectos y el perfil tiene anillo mayor, la percepción se evalúa
+    # sobre el anillo MAYOR y se DECLARA la ampliación. Con fuentes generosas (Predik en las
+    # anclas: ~40 en 8 min) esta regla NO se activa: el comportamiento validado no cambia.
+    try:
+        if (perception.get("n_zona") or 0) < ZONA_MUESTRA_MIN and outer_min != base_min:
+            _per2 = value_perception_adjust(resumen, outer_ring, req.lng, req.lat, agebs_geo)
+            if (_per2.get("n_zona") or 0) > (perception.get("n_zona") or 0):
+                _per2["zona_base_ampliada"] = {
+                    "de_min": base_min, "a_min": outer_min,
+                    "n_antes": perception.get("n_zona") or 0,
+                    "n_despues": _per2.get("n_zona"),
+                    "umbral": ZONA_MUESTRA_MIN,
+                }
+                _per2["motivo"] = (((_per2.get("motivo") or "") +
+                    f" · anillo base ampliado {base_min}→{outer_min} min por muestra "
+                    f"insuficiente (n={perception.get('n_zona') or 0} < {ZONA_MUESTRA_MIN})")
+                    .strip(" ·"))
+                perception = _per2
+    except Exception as e:
+        errors["zona_muestra"] = str(e)[:120]
 
     # ── CLASIFICACIÓN DE COMPETIDORES EN 3 ZONAS ──
     # El inventario/KPIs/productos usan el universo COMPLETO (azul+verde combinadas).

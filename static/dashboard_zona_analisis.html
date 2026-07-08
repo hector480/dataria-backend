@@ -6505,9 +6505,9 @@ function tplZonaAnalisis(z){
           <span style="font-size:11px;color:#8A90A6;align-self:center;">Capas:</span>
           <button class="mf-btn" onclick="zaToggleCapa('nse',this)">◧ NSE por AGEB</button>
           <button class="mf-btn" onclick="zaToggleCapa('pv',this)">◉ Percepción de valor $/m²</button>
-          <button class="mf-btn" onclick="zaCompararFuentes(this)">⚖ Comparar fuentes de isócrona</button>
+          <!-- DIRECTIVA (8 jul 2026): sin opciones de fuente para el usuario — la fuente y
+               su comparación/validación son procesos del BACKEND (invariancia demostrada) -->
         </div>
-        <div id="za-comparar-out" style="margin-top:8px;"></div>
         <div id="za-captable-out" style="margin-top:8px;"></div>
         <div id="za-movilidad-out" style="margin-top:8px;"></div>
 
@@ -7301,46 +7301,7 @@ async function estrellaFiltroRun(){
 
 /* ISO-MULTI · comparación A/B de fuentes de isócrona (cálculo backend; el front pinta) */
 let ZA_COMPARAR_LAYERS = [];
-async function zaCompararFuentes(btn){
-  const out = document.getElementById('za-comparar-out');
-  if(!out) return;
-  if(ZA_STATE.lat==null || ZA_STATE.lng==null){
-    out.innerHTML = '<div style="font-size:12px;color:var(--t2);">Coloca el pin primero.</div>'; return;
-  }
-  // limpiar overlays previos
-  ZA_COMPARAR_LAYERS.forEach(l=>{ try{ if(zaMap) zaMap.removeLayer(l); }catch(e){} });
-  ZA_COMPARAR_LAYERS = [];
-  out.innerHTML = '<div style="font-size:12px;color:var(--t2);">Comparando fuentes en el backend…</div>';
-  try{
-    const r = await fetch(DATARIA_BACKEND_URL.replace(/\/+$/,'') + '/api/zona/isocrona_comparar', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({lat: ZA_STATE.lat, lng: ZA_STATE.lng, minutes: 8})});
-    const j = await r.json();
-    if(!j.ok){ out.innerHTML = '<div style="font-size:12px;color:var(--amber);">No se pudo comparar.</div>'; return; }
-    const COLORES = {predik:'#0540F2', valhalla:'#00B564', ors:'#F59E0B', tomtom:'#EF4444'};
-    const filas = Object.entries(j.fuentes).map(([f, d])=>{
-      if(d.ok && d.poligono && zaMap && typeof L!=='undefined'){
-        try{
-          const ll = d.poligono.coordinates[0].map(c=>[c[1],c[0]]);
-          const lay = L.polygon(ll, {color: COLORES[f]||'#94A3B8', fill:false, weight:2.5,
-                                     dashArray: f==='predik'?null:'6 5'}).addTo(zaMap);
-          ZA_COMPARAR_LAYERS.push(lay);
-        }catch(e){}
-      }
-      const iou = d.iou_vs_referencia!=null ? d.iou_vs_referencia : (f===j.referencia?'ref.':'—');
-      return `<tr><td style="color:${COLORES[f]||'#94A3B8'};font-weight:700;">${f}</td>
-        <td>${d.ok?'✓':'✗ '+(d.error||'')}</td>
-        <td>${d.area_km2!=null?d.area_km2+' km²':'—'}</td>
-        <td>${d.area_vs_referencia_pct!=null?d.area_vs_referencia_pct+'%':(f===j.referencia?'100%':'—')}</td>
-        <td>${iou}</td><td>${d.ms!=null?d.ms+' ms':'—'}</td></tr>`;
-    }).join('');
-    out.innerHTML = `<div class="za-res-card"><div class="za-res-h">Comparación de fuentes · isócrona 8 min · referencia: <b>${j.referencia||'—'}</b></div>
-      <div class="tbl-wrap"><table style="font-size:11px;"><thead><tr><th>Fuente</th><th>Estado</th><th>Área</th><th>Área vs ref.</th><th>IoU</th><th>Respuesta</th></tr></thead><tbody>${filas}</tbody></table></div>
-      <div class="za-res-sub" style="margin-top:6px;">${j.nota||''} Las líneas punteadas en el mapa son las fuentes alternas.</div></div>`;
-  }catch(e){
-    out.innerHTML = `<div style="font-size:12px;color:var(--amber);">Error: ${e.message}</div>`;
-  }
-}
+/* zaCompararFuentes ELIMINADA (directiva 8 jul 2026): la comparación/elección de fuente es proceso del backend (/api/zona/isocrona_comparar queda para QA interna) */
 
 /* CAPTABLE · orígenes del mercado captable (modelo Huff · backend calcula, front pinta) */
 let ZA_CAPTABLE_LAYER = null;
