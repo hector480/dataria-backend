@@ -1109,3 +1109,12 @@ hogares, share Huff) · anillo captable naranja punteado en el mapa · línea ex
 VALIDADO: py_compile · node --check · unitarias (corona excluye zona natural; Σshare=100;
 turística 5%→flag; sin columnas→próximamente; ext sin total→share None; sin masa→conteo
 declarado) · piezas front completas. En vivo: requiere push (proveedores bloqueados aquí).
+
+## OD-SINTÉTICO. Diseño de la segunda fuente de captable (mejor que Predik) — [PROPUESTA · esperando checkpoint]
+Ver docs/DISENO_OD_SINTETICO.md: motor OD sintético ANCLADO a datos observados oficiales
+(censo INEGI movilidad municipio→municipio versionado EN el repo → no puede caerse),
+DENUE para atracción/destinos en competencia, isócronas multi-proveedor como fricción,
+NSE nativo de la base, capas por motivo (trabajo/estudio observados · compras Huff-DENUE ·
+turismo DATATUR+P1), balanceo IPF para cuadrar exacto con lo observado, MISMO contrato
+mercado_captable (v2→v1 Huff→None con confianza declarada). Preguntas Q1-Q3 (movilidad en
+la base propia, token DENUE, zonas turísticas a calibrar).
