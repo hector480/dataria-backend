@@ -1190,3 +1190,27 @@ Pregunta de Héctor: ¿el front muestra lo mismo sin importar la fuente? DEMOSTR
 BONUS: la verificación destapó fragilidad preexistente (zona SIN demografía → hog_comp nulo
 tronaba la Tabla 5 de Demanda, misma clase del bug histórico) → blindada con guardas N/D.
 verify_all 8/8 + render 10/10 tras el blindaje.
+
+## 2026-07-08 · LOTE ISO-BACKEND + FIX-502 + VERIF-N3 (directivas de Héctor)
+- **Causa raíz del 502 en producción**: Predik devuelve 403 (credencial del wrapper PRSP, ticket de Héctor)
+  y Valhalla devolvía **400** porque el request iba por GET con el JSON en query string (los espacios se
+  codificaban como `+` y Valhalla no los tolera). Con ambas fuentes caídas, el backend respondía 502.
+- **Fix**: `fetch_isochrone_valhalla` ahora hace **POST** con JSON compacto. Verificado EN VIVO desde el
+  navegador de Héctor contra valhalla1.openstreetmap.de: 200 OK, 1 feature Polygon.
+- **Directiva selector de fuente**: eliminado `za-iso-fuente` del front. La elección de fuente es 100%
+  backend: `fetch_isochrone_fuente` recorre `ISO_CADENA` (default `valhalla,predik`, env
+  `DATARIA_ISO_CADena` → DATARIA_ISO_CADENA) y declara `iso_fuente_usada` + nota si hubo fallback.
+- **Directiva captable**: eliminado el checkbox `za-captable`; `incluir_captable=True` por default en
+  `ZonaRequest`. El mercado captable SIEMPRE se calcula; natural y captable viajan como variables
+  SEPARADAS en el payload (las siguientes secciones las procesan distinto). La tarjeta `za-captable-out`
+  se muestra siempre.
+- **VERIF invariancia de fuente (pedida por Héctor)**: N1 parsers normalizan predik/valhalla al mismo
+  contrato byte a byte; N2 payload idéntico tras scrub de volátiles; N3 HTML de las 9 secciones idéntico
+  entre fuentes (única diferencia = etiqueta de transparencia "Fuente de isócrona"). N3 requirió blindar
+  fragilidades preexistentes del front ante zona sin demografía: `hog_comp` (helper fila),
+  `nse_dominante||'N/D'`, `tca!=null`, y `(z.nse||{})[k]` en tplDemanda (misma clase del bug histórico
+  de Demanda). Corrección de honestidad: el commit 4c4b91b sobre-afirmó N3; quedó verde HASTA este lote.
+- **Limitación de entorno**: el paso EN VIVO de verify_all no corre en el sandbox (Predik 403 + Valhalla
+  bloqueado localmente). Producción usa la cadena; validar en Safari tras el push.
+- Validación: py_compile OK · node --check OK · harness N3 "INVARIANCIA COMPLETA ✓✓✓" · checks de
+  directivas OK. Revisada dos veces.

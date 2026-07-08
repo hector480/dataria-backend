@@ -3052,13 +3052,13 @@ function tplDemanda(z) {
       <div class="kpi" style="--kpi-color:var(--blue)"><div class="kpi-label">Población área</div><div class="kpi-val">${fmtN(z.population)}</div><div class="kpi-sub">Habitantes · proyección 2026</div></div>
       <div class="kpi" style="--kpi-color:var(--teal)"><div class="kpi-label">Hogares</div><div class="kpi-val">${fmtN(z.households)}</div><div class="kpi-sub">Hogares ocupados</div></div>
       <div class="kpi" style="--kpi-color:var(--green)"><div class="kpi-label">Ingreso prom./hogar</div><div class="kpi-val">${fmtK(z.ingreso_hogar)}</div><div class="kpi-sub">MXN / mes</div></div>
-      <div class="kpi" style="--kpi-color:var(--amber)"><div class="kpi-label">NSE dominante</div><div class="kpi-val">${z.nse_dominante.split(' ')[0]}</div><div class="kpi-sub">${z.nse_dominante}</div></div>
+      <div class="kpi" style="--kpi-color:var(--amber)"><div class="kpi-label">NSE dominante</div><div class="kpi-val">${(z.nse_dominante||'N/D').split(' ')[0]}</div><div class="kpi-sub">${z.nse_dominante||'sin demografía en la zona'}</div></div>
       <div class="kpi" style="--kpi-color:var(--purple)"><div class="kpi-label">Personas / hogar</div><div class="kpi-val">${z.personas_hogar!=null?z.personas_hogar.toFixed(2):'N/D'}</div><div class="kpi-sub">Composición familiar</div></div>
-      <div class="kpi" style="--kpi-color:var(--teal)"><div class="kpi-label">TCA hogares</div><div class="kpi-val">${z.tca.toFixed(2)}%</div><div class="kpi-sub">Crecimiento anual proyectado</div></div>
+      <div class="kpi" style="--kpi-color:var(--teal)"><div class="kpi-label">Crecimiento anual de hogares (TCA)</div><div class="kpi-val">${z.tca!=null?z.tca.toFixed(2)+'%':'N/D'}</div><div class="kpi-sub">Crecimiento anual proyectado</div></div>
     </div>
     <div class="row-2">
       <div class="card"><div class="card-title">Distribución NSE · Hogares e ingreso</div>
-        ${['A','Cm','C','Dm'].filter(k=>z.nse[k].hog>0).map(k=>{
+        ${['A','Cm','C','Dm'].filter(k=>(z.nse||{})[k] && z.nse[k].hog>0).map(k=>{
           const n=z.nse[k]; const lbl={A:'A',Cm:'C+',C:'C',Dm:'D+'}[k];
           const cl={A:'blue',Cm:'teal',C:'amber',Dm:'purple'}[k];
           return `<div style="margin-bottom:12px;">
@@ -3657,7 +3657,7 @@ function renderMethodComparison() {
 
         <div style="background:var(--navy-3);border-left:3px solid var(--amber);border-radius:8px;padding:14px;">
           <div style="font-size:12px;font-weight:700;color:var(--amber);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">💰 Blind spot 3 · Pricing power perdido</div>
-          <div style="font-size:12px;color:var(--t1);line-height:1.6;">Supply ancla el precio al promedio del mercado ($${supplyAvgTicket.toFixed(2)}M ticket promedio). Demanda ancla el precio a la <strong>capacidad de pago real del NSE</strong> según su ingreso mensual ($${demandAvgTicket.toFixed(2)}M promedio). El comprador ${z.nse_dominante.split('·')[0].trim()} en ${z.name} tiene ingreso $${Math.round(z.ingreso_hogar/1000)}k/mes y puede pagar tickets correctamente diferenciados.</div>
+          <div style="font-size:12px;color:var(--t1);line-height:1.6;">Supply ancla el precio al promedio del mercado ($${supplyAvgTicket.toFixed(2)}M ticket promedio). Demanda ancla el precio a la <strong>capacidad de pago real del NSE</strong> según su ingreso mensual ($${demandAvgTicket.toFixed(2)}M promedio). El comprador ${(z.nse_dominante||'N/D').split('·')[0].trim()} en ${z.name} tiene ingreso $${Math.round(z.ingreso_hogar/1000)}k/mes y puede pagar tickets correctamente diferenciados.</div>
         </div>
 
         <div style="background:var(--navy-3);border-left:3px solid var(--purple);border-radius:8px;padding:14px;">
@@ -4112,7 +4112,7 @@ function tplComercio(z) {
       <div class="kpi" style="--kpi-color:var(--purple)"><div class="kpi-label">Ingreso/hogar</div><div class="kpi-val">${fmtK(z.ingreso_hogar)}</div><div class="kpi-sub">MXN/mes promedio</div></div>
       <div class="kpi" style="--kpi-color:var(--amber)"><div class="kpi-label">GLA objetivo</div><div class="kpi-val">${fmtN(c.gla_target)}</div><div class="kpi-sub">m² · centro comercial</div></div>
       <div class="kpi" style="--kpi-color:var(--green)"><div class="kpi-label">Renta estimada</div><div class="kpi-val">$${c.renta_low.toFixed(1)}M</div><div class="kpi-sub">MXN/mes · low scenario</div></div>
-      <div class="kpi" style="--kpi-color:var(--teal)"><div class="kpi-label">NSE dominante</div><div class="kpi-val">${z.nse_dominante.split(' ')[0]}</div><div class="kpi-sub">${z.nse_dominante}</div></div>
+      <div class="kpi" style="--kpi-color:var(--teal)"><div class="kpi-label">NSE dominante</div><div class="kpi-val">${(z.nse_dominante||'N/D').split(' ')[0]}</div><div class="kpi-sub">${z.nse_dominante||'sin demografía en la zona'}</div></div>
     </div>
     <div class="row-2">
       <div class="card"><div class="card-title">Demanda anual por categoría (M MXN)</div><div class="chart-box" style="height:280px;"><canvas id="demandaCatChart"></canvas></div></div>
@@ -6441,16 +6441,10 @@ function tplZonaAnalisis(z){
           <div class="za-card-h">1 · Ubicación del predio</div>
           <div class="za-field-grid">
             <label class="za-lbl">Nombre del análisis<input class="za-in" id="za-analisis-nombre" placeholder="p. ej. Torre Centro 01"></label>
-            <label class="za-lbl" style="display:flex;align-items:center;gap:8px;">
-              <input type="checkbox" id="za-captable" style="width:auto;margin:0;">
-              <span>Incluir mercado captable <span style="font-size:10px;color:#8A90A6;">(orígenes · modelo Huff · análisis más lento)</span></span>
-            </label>
-            <label class="za-lbl">Fuente de isócronas<select class="za-in" id="za-iso-fuente">
-              <option value="">Predik (default)</option>
-              <option value="valhalla">Valhalla · OSM (gratuita)</option>
-              <option value="ors">OpenRouteService (requiere key)</option>
-              <option value="tomtom">TomTom (requiere key)</option>
-            </select></label>
+            <!-- DIRECTIVA (8 jul 2026): la fuente de isócronas la elige el BACKEND
+                 automáticamente (cadena por calidad/disponibilidad, declarada en los
+                 resultados). El mercado captable SIEMPRE se incluye: natural y captable
+                 son variables separadas que las siguientes secciones procesan distinto. -->
             <label class="za-lbl">Estado<input class="za-in" id="za-estado" placeholder="Nuevo León"></label>
             <label class="za-lbl">Ciudad / Municipio<input class="za-in" id="za-ciudad" placeholder="(se detecta del pin)"></label>
             <label class="za-lbl">Colonia<input class="za-in" id="za-colonia" placeholder="(se detecta del pin)"></label>
@@ -7000,8 +6994,7 @@ async function zaRunAnalysis(){
     predio_m2: ZA_STATE.predio_m2, uso_comercial: ZA_STATE.uso_comercial,
     zone_name: gv('za-colonia') || gv('za-ciudad') || 'Zona de análisis',
     analisis_nombre: gv('za-analisis-nombre') || null,
-    iso_fuente: gv('za-iso-fuente') || null,
-    incluir_captable: !!(document.getElementById('za-captable')||{}).checked,
+    // fuente de isócrona y captable: procesos del BACKEND (cadena automática · captable siempre)
     colonia: gv('za-colonia') || null,
     municipio: gv('za-ciudad'), estado: gv('za-estado'), pais: 'México',
     norm: ZA_STATE.norm,

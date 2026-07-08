@@ -5390,8 +5390,10 @@ class ZonaRequest(BaseModel):
     # ISO-MULTI · fuente de isócronas: predik (default) | valhalla | ors | tomtom.
     # None → ISO_FUENTE_DEFAULT. La lógica de negocio no cambia con la fuente.
     iso_fuente: Optional[str] = None
-    # CAPTABLE · opt-in (análisis más pesado: isócrona amplia + DI de la corona)
-    incluir_captable: bool = False
+    # CAPTABLE · SIEMPRE incluido (directiva Héctor 8 jul 2026): el mercado natural y el
+    # captable son variables SEPARADAS que las siguientes secciones procesan distinto,
+    # pero este paso siempre considera ambos. (El flag permite apagarlo solo para pruebas.)
+    incluir_captable: bool = True
     captable_min: Optional[int] = None   # None → principal+10, tope CAPTABLE_MIN_TOPE
     # Unidades que el proyecto nuevo planea construir (campo del front). Topa el pronóstico de
     # venta a 12/18/24 meses: no se puede vender más de lo que se construye. None → sin tope.
@@ -5666,11 +5668,13 @@ def _parse_tomtom_iso(j: Dict) -> Dict:
 
 
 async def fetch_isochrone_valhalla(client: httpx.AsyncClient, lat: float, lng: float, minutes: int) -> Dict:
-    import json as _json
-    q = _json.dumps({"locations": [{"lat": lat, "lon": lng}], "costing": "auto",
-                     "contours": [{"time": minutes}], "polygons": True, "denoise": 0.3})
-    r = await client.get(f"{VALHALLA_BASE}/isochrone", params={"json": q},
-                         headers={"User-Agent": "Dataria/2.0 (contacto@prosperia.mx)"})
+    # POST con JSON COMPACTO: el GET con json en query codificaba espacios como '+' y
+    # Valhalla respondía 400 (diagnosticado y verificado en producción · 8 jul 2026).
+    r = await client.post(f"{VALHALLA_BASE}/isochrone",
+                          json={"locations": [{"lat": lat, "lon": lng}], "costing": "auto",
+                                "contours": [{"time": minutes}], "polygons": True,
+                                "denoise": 0.3},
+                          headers={"User-Agent": "Dataria/2.0 (contacto@prosperia.mx)"})
     r.raise_for_status()
     return _parse_valhalla_iso(r.json(), minutes)
 
@@ -5704,20 +5708,44 @@ ISO_PROVIDERS = {
 }
 
 
+# DIRECTIVA DE HÉCTOR (8 jul 2026): la fuente NO la elige el usuario — es un proceso del
+# BACKEND que usa la que esté funcionando, en orden de calidad. La invariancia del
+# resultado ante la fuente quedó DEMOSTRADA (VERIF-FUENTES: payload y HTML idénticos a
+# geometría igual). Cadena default: valhalla (mejor calidad gratuita disponible) → predik
+# (cuando restauren su credencial) → ors/tomtom si hay keys. Configurable sin código.
+ISO_CADENA = [f.strip().lower() for f in os.environ.get(
+    "DATARIA_ISO_CADENA", "valhalla,predik").split(",") if f.strip()]
+
+
 async def fetch_isochrone_fuente(client: httpx.AsyncClient, lat: float, lng: float,
                                  minutes: int, fuente: Optional[str] = None):
-    """(geojson, fuente_usada, nota). Predik es el default (regla intacta); si Predik
-    falla y hay fallback configurado, la isócrona sale del fallback y se DECLARA."""
-    f = (fuente or ISO_FUENTE_DEFAULT or "predik").lower()
-    fn = ISO_PROVIDERS.get(f) or fetch_isochrone
-    try:
-        return await fn(client, lat, lng, minutes), f, None
-    except Exception as e:
-        fb = (ISO_FALLBACK or "").lower()
-        if f == "predik" and fb and fb != "predik" and fb in ISO_PROVIDERS:
-            geo = await ISO_PROVIDERS[fb](client, lat, lng, minutes)
-            return geo, fb, f"Predik no respondió ({str(e)[:70]}) · isócrona generada por {fb}"
-        raise
+    """(geojson, fuente_usada, nota). Sin fuente explícita → CADENA del backend en orden
+    de calidad: primera que responda gana, siempre declarada. Con fuente explícita
+    (comparador/pruebas API) → esa, con fallback a la cadena si falla."""
+    intentos: List[str] = []
+    if fuente:
+        f = str(fuente).lower()
+        if f in ISO_PROVIDERS:
+            intentos.append(f)
+    for f in ISO_CADENA:
+        if f in ISO_PROVIDERS and f not in intentos:
+            intentos.append(f)
+    for f in ("ors", "tomtom"):
+        if f not in intentos and ((f == "ors" and ORS_KEY) or (f == "tomtom" and TOMTOM_KEY)):
+            intentos.append(f)
+    if not intentos:
+        intentos = ["predik"]
+    errores = []
+    for i, f in enumerate(intentos):
+        try:
+            geo = await ISO_PROVIDERS[f](client, lat, lng, minutes)
+            nota = None
+            if i > 0:
+                nota = (f"{' · '.join(errores)[:120]} · isócrona generada por {f}")
+            return geo, f, nota
+        except Exception as e:
+            errores.append(f"{f}: {str(e)[:60]}")
+    raise RuntimeError(" · ".join(errores)[:220])
 
 
 def _area_ring_km2(ring: List[List[float]]) -> Optional[float]:
