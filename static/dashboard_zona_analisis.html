@@ -6798,7 +6798,6 @@ function zaRenderResults(perfil, proyectos, ajuste){
       <div class="za-res-h">Isócrona aplicada</div>
       <div class="za-res-big">${perfil.label}</div>
       <div class="za-res-sub">Predio: ${zaNum(ZA_STATE.predio_m2)} m² ${ZA_STATE.uso_comercial?'· uso comercial':''}</div>
-      ${ZA_STATE.iso_fuente?`<div class="za-res-sub">Fuente de isócrona: <b>${ZA_STATE.iso_fuente}</b>${ZA_STATE.iso_nota?` <span style="color:var(--amber,#F59E0B);">· ${ZA_STATE.iso_nota}</span>`:''}</div>`:''}
       ${segNote}
       <div class="za-res-note">Anillos: <b style="color:#0540F2;">azul</b> = zona primaria (quién llega al predio) · <b style="color:#00B564;">verde</b> = zona secundaria (amplía la demanda) · <b style="color:#8B5CF6;">morado</b> = mercado del predio (contra quién se compite de verdad).</div>
     </div>
@@ -7022,7 +7021,7 @@ async function zaRunAnalysis(){
   // ISO-MULTI · transparencia: con qué fuente se generó la isócrona (y si hubo fallback)
   ZA_STATE.iso_fuente = poly.iso_fuente || null;
   ZA_STATE.iso_nota = poly.iso_nota || null;
-  if(poly.iso_nota) zaSetStatus('⚠ ' + poly.iso_nota, 'warn');
+  // iso_nota es telemetría interna del backend: no se muestra al usuario (directiva 8 jul)
   ZA_STATE.perfil_iso = poly.perfil_iso;
   ZA_STATE.perfil_label = poly.perfil_label;
   ZA_STATE.isocronas = {};
@@ -7329,11 +7328,12 @@ function zaRenderCaptable(mc){
     <td style="font-weight:700;color:var(--green);">${o.share_pct!=null?o.share_pct+'%':'—'}</td>
   </tr>`).join('');
   const ext = mc.extranjero || {};
+  // Sin datos de mercado extranjero → NO se muestra nada (directiva 8 jul 2026)
   const extHtml = ext.presente
     ? `<div class="za-res-note" style="margin-top:6px;${ext.zona_turistica?'border-left:3px solid var(--amber);padding-left:8px;':''}">
         🌎 Población extranjera en la corona: <b>${ext.share_pct}%</b> (${(ext.poblacion_extranjera||0).toLocaleString('es-MX')} personas)
-        ${ext.zona_turistica?` · <b>ZONA TURÍSTICA/EXTRANJERA</b> (≥${ext.umbral_pct}%)`:''}<br>${ext.nota||''}</div>`
-    : `<div class="za-res-sub" style="margin-top:6px;color:var(--amber,#F59E0B);">🌎 Extranjero: ${ext.nota||'próximamente'}</div>`;
+        ${ext.zona_turistica?` · <b>ZONA TURÍSTICA/EXTRANJERA</b> (≥${ext.umbral_pct}%)`:''}</div>`
+    : '';
   out.innerHTML = `<div class="za-res-card">
     <div class="za-res-h">Mercado captable · orígenes <span style="font-weight:400;font-size:10px;color:#8A90A6;">anillo ${mc.anillo_min} min (${mc.fuente_isocrona||''}) · ${mc.n_agebs_corona} AGEBs en corona · masa: ${mc.masa_fuente||''}</span></div>
     <div class="tbl-wrap"><table style="font-size:11px;"><thead><tr><th>NSE</th><th>Municipio</th><th>Dist. mediana</th><th>Hogares est.</th><th>Share (Huff)</th></tr></thead><tbody>${filas}</tbody></table></div>
@@ -7366,9 +7366,9 @@ function zaRenderMovilidad(mv){
       <div><div class="za-res-sub">Población dentro</div><div style="font-weight:700;">${fmt(p.poblacion)}</div></div>
       <div><div class="za-res-sub">AGEBs</div><div style="font-weight:700;">${p.n_agebs!=null?p.n_agebs:'N/D'}</div></div>
     </div>
-    <div class="za-res-sub" style="margin-top:4px;">Red vial peatonal real (OSM)${p.masa_fuente?` · masa: ${p.masa_fuente}`:''} · Flujo peatonal: <span style="color:var(--amber,#F59E0B);">${(p.flujo_peatonal&&p.flujo_peatonal.estado)==='proximamente'?'próximamente':''}</span></div>`;
+    `;
   } else {
-    peatHtml = `<div class="za-res-sub" style="color:var(--amber,#F59E0B);">Alcance peatonal: ${p.estado==='error'?('no disponible ('+(p.detalle||'')+')'):'próximamente'}</div>`;
+    peatHtml = `<div class="za-res-sub">Alcance peatonal: N/D</div>`;
   }
   let vehHtml = '';
   if(v.estado === 'ok'){
@@ -7382,10 +7382,10 @@ function zaRenderMovilidad(mv){
     </div>
     <div class="za-res-sub" style="margin-top:4px;">${v.nota||''}</div>`;
   } else {
-    vehHtml = `<div class="za-res-sub" style="margin-top:8px;color:var(--amber,#F59E0B);">Tráfico vehicular: ${v.estado==='proximamente'?'próximamente':('no disponible'+(v.detalle?(' ('+v.detalle+')'):''))}</div>`;
+    vehHtml = '';   // sin medición vehicular → no se muestra el bloque (sin notas internas)
   }
   out.innerHTML = `<div class="za-res-card">
-    <div class="za-res-h">Movilidad de la zona <span style="font-weight:400;font-size:10px;color:#8A90A6;">peatonal ${p.fuente||''}${v.fuente?(' · vehicular '+v.fuente):''}</span></div>
+    <div class="za-res-h">Movilidad de la zona</div>
     ${peatHtml}${vehHtml}
   </div>`;
 }

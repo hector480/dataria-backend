@@ -3329,6 +3329,13 @@ def derive_productos_renta(ft_renta: List[Dict], segments: List[Dict]) -> List[D
     """
     if not segments:
         return []
+    # H8 ESTRICTO (regresión reportada 8 jul 2026): sin oferta de RENTA OBSERVADA en la zona
+    # no se publican productos de renta modelados (integridad: la escalera base DIGO daba
+    # $/m²/mes sin sentido en zonas sin mercado de renta). Dato ausente = N/D.
+    _renta_obs = [r for r in (ft_renta or [])
+                  if _num((r.get("attributes") or {}).get("F___M2"))]
+    if len(_renta_obs) < 3:
+        return []
     PM2_POR_NSE = {"A": 140000, "B": 95000, "C+": 55000, "C": 40000,
                    "D+": 30000, "D": 22000, "E": 16000}
 
@@ -4139,7 +4146,7 @@ def derive_percepcion_detalle(perception, segments, demografia, productos) -> Di
 # atracción de cada AGEB de la CORONA (anillo captable − zona natural) ∝ masa/(1+dist)^exp,
 # sobre demografía REAL del KMZ. El share queda ETIQUETADO como modelo y se actualiza a
 # flujos observados cuando el OD de Predik esté disponible. Extranjero/turístico: la regla
-# se ENCIENDE SOLA cuando la base publique columnas de población extranjera (ticket P1).
+# se ENCIENDE SOLA cuando la base publique columnas de población extranjera.
 HUFF_EXP = float(os.environ.get("DATARIA_HUFF_EXP", "2.0"))
 CAPTABLE_MIN_TOPE = int(os.environ.get("DATARIA_CAPTABLE_MIN_TOPE", "30"))
 UMBRAL_EXTRANJERO_TURISTICO = float(os.environ.get("DATARIA_UMBRAL_EXTRANJERO", "0.03"))
@@ -4274,7 +4281,7 @@ def derive_mercado_captable(agebs_geo_capt: List[Dict], natural_ring: List[List[
         out["extranjero"] = {
             "presente": False,
             "nota": ("Próximamente · la base aún no publica columnas de población "
-                     "extranjera en esta capa (ticket P1); la regla se activa sola al "
+                     "extranjera en esta capa; la regla se activa sola al "
                      "aparecer."),
         }
     return out
@@ -6396,6 +6403,58 @@ async def zona_procesar(req: ZonaRequest):
         {"directos": [], "primarios": [], "secundarios": [],
          "n_directos": 0, "n_primarios": 0, "n_secundarios": 0})
     perception["competidores"] = competidores
+    # REGLA DE COMPARABLES (Héctor · 8 jul 2026): un competidor es DIRECTO solo si COMPARTE
+    # (1) isócrona primaria (llega el mismo cliente), (2) banda de PERCEPCIÓN DE VALOR
+    # (mediana±MAD robusta de la zona) y (3) bloque NSE del entorno cuando hay geometría.
+    # Estar dentro de la isócrona con OTRA percepción/NSE = SECUNDARIO (clientes compartidos,
+    # no competidor directo). Prioridad: percepción/NSE MANDAN sobre la geometría.
+    try:
+        _st = perception.get("stats_robustas") or {}
+        _med, _mad = _st.get("mediana"), _st.get("mad")
+        if _med and competidores:
+            _li = _med - 2.0 * (_mad or _med * 0.15)
+            _ls = _med + 2.0 * (_mad or _med * 0.15)
+            # NSE del entorno del pin (bloque dominante) para el criterio 3
+            _pin_nse = None
+            _gp = [g for g in (agebs_geo or []) if g.get("nse_rank") is not None
+                   and g.get("lng") is not None]
+            if _gp:
+                _pin_nse = min(_gp, key=lambda q: (q["lng"] - req.lng) ** 2 +
+                               (q["lat"] - req.lat) ** 2)["nse_rank"]
+            def _es_directo(c):
+                pm2 = c.get("pm2")
+                if pm2 is None or not (_li <= pm2 <= _ls):
+                    return False
+                if _pin_nse is not None and _gp and c.get("lng") is not None:
+                    n = min(_gp, key=lambda q: (q["lng"] - c["lng"]) ** 2 +
+                            (q["lat"] - c["lat"]) ** 2)["nse_rank"]
+                    if abs(n - _pin_nse) > 1:   # bloque NSE distinto → no comparable
+                        return False
+                return True
+            nuevos_dir, degradados = [], []
+            for c in (competidores.get("directos") or []):
+                (nuevos_dir if _es_directo(c) else degradados).append(c)
+            promovidos = []
+            for c in (competidores.get("primarios") or []):
+                if _es_directo(c):
+                    promovidos.append(c)
+            competidores["primarios"] = [c for c in (competidores.get("primarios") or [])
+                                         if c not in promovidos]
+            for c in degradados:
+                c["set_competidor"] = "secundario"
+                c["nota_set"] = "distinta percepción de valor/NSE (cliente compartido)"
+            for c in promovidos:
+                c["set_competidor"] = "directo"
+            competidores["directos"] = nuevos_dir + promovidos
+            competidores["secundarios"] = (competidores.get("secundarios") or []) + degradados
+            competidores["n_directos"] = len(competidores["directos"])
+            competidores["n_primarios"] = len(competidores["primarios"])
+            competidores["n_secundarios"] = len(competidores["secundarios"])
+            competidores["criterio_directos"] = (
+                f"isócrona primaria + banda de percepción ${round(_li):,}–${round(_ls):,}/m² "
+                f"+ bloque NSE del entorno")
+    except Exception as e:
+        errors["comparables_banda"] = str(e)[:120]
     # Nota de zona (sin recortar inventario): describe el set directo
     if perception.get("barrera"):
         if perception.get("metodo") == "barrera_nse":
@@ -6488,6 +6547,41 @@ async def zona_procesar(req: ZonaRequest):
                 geo_capt, outer_ring, req.lng, req.lat,
                 captable_raw["min"], captable_raw["fuente"], captable_raw["ring"],
                 demografia.get("municipio"), demografia.get("estado"))
+        # CAPTABLE-MASA (Héctor #2 · 8 jul 2026): población/hogares REALES de la corona desde
+        # el XLSX del DI captable (el KMZ a veces no publica masa) + viajes diarios con
+        # destino al municipio del pin (ancla censal OD) cuando el origen trae municipio.
+        try:
+            if mercado_captable and mercado_captable.get("origenes") and captable_raw:
+                _agc = parse_di_xlsx(captable_raw.get("di")) if captable_raw.get("di") else []
+                _hg, _n = {}, {}
+                for r_ in _agc:
+                    _nse = ageb_nse(r_)
+                    _h = _num(r_.get("Hogares totales 2026"))
+                    if _nse and _h:
+                        _hg[_nse] = _hg.get(_nse, 0) + _h
+                        _n[_nse] = _n.get(_nse, 0) + 1
+                _sal = {}
+                try:
+                    _od = await _od_cargar_estado(req.estado or "")
+                    if _od.get("ok") and _od.get("flujos"):
+                        _sal = _od_salientes(_od["flujos"],
+                                             demografia.get("municipio") or req.municipio or "")
+                except Exception:
+                    _sal = {}
+                for o in mercado_captable["origenes"]:
+                    if o.get("hogares_est") is None and o.get("nse") in _hg:
+                        o["hogares_di"] = round(_hg[o["nse"]])
+                        o["hogares_di_nota"] = "hogares del DI captable por NSE (dato real)"
+                    if o.get("municipio") and _sal:
+                        for _k, _vv in _sal.items():
+                            if _norm_nombre(_k) == _norm_nombre(o["municipio"]):
+                                o["viajes_destino_dia"] = round(_vv)
+                                break
+                if _hg:
+                    mercado_captable["masa_di"] = {k: round(v) for k, v in _hg.items()}
+                    mercado_captable["masa_di_fuente"] = "DI captable (XLSX) · hogares 2026 por NSE"
+        except Exception as e:
+            errors["captable_masa"] = str(e)[:120]
         payload["zone_data"]["mercado_captable"] = mercado_captable
         if mercado_captable and mercado_captable.get("activo") \
                 and isinstance(payload["zone_data"].get("dem1_meta"), dict):

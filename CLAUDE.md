@@ -126,6 +126,7 @@ Implementada en `_demanda_recamaras_bucket` + `_pesos_tipologia_hogar`.
    errores `toFixed/toLocaleString` en STDERR del mock de Chart.js son artefactos del harness,
    NO del código).
 5. `verificacion/verify_all.py` → 8/8 y render 10/10 con formato OK.
+5b. `verificacion/verify_reglas.py` → OK 100% (invariantes de negocio: NUNCA romperse al cambiar proveedor o agregar información).
 6. `verificacion/verify_interactive.py` → 16/16 checks OK (usa zona Monterrey Contry EN VIVO).
 7. Revisar `docs/LISTA_REVISION.md` DOS veces; anotar el cambio con causa raíz y validación.
 8. **Ahora con acceso local**: validar también contra Render tras el push

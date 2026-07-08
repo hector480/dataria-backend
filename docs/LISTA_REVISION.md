@@ -1272,3 +1272,37 @@ verify_all 8/8 + render 10/10 tras el blindaje.
   fuentes) OK · checks integrales de directivas OK · anclas ZMM/VP contra PRSP real OK.
   Pendiente post-push: verificación en producción de ZMM y VP (n_zona, método, vértices de
   zona, dominante) — bloqueada hasta el push. Revisada dos veces.
+
+## 2026-07-08 · LOTE COMPARABLES-BANDA + LIMPIEZA FRONT (lista de 5 defectos de Héctor · pin 25.65766,-100.44849)
+- **Diagnóstico en producción (payload real del pin)**: 19 proyectos en anillo de 8 min mezclando
+  bandas ($44k Vivia … $94k Eón); k=1 (sin barrera de oferta detectada); método barrera_nse →
+  zona_para_competidores=None → n_directos=0 (el front mostraba "Proyectos en la zona: 0" con
+  puntos pintados). CONFIRMADO: la regla de Héctor (directo = compartir isócrona primaria +
+  banda de percepción + NSE) NO estaba codificada; la clasificación era solo espacial.
+- **FIX 1 · Regla de comparables**: post-clasificación por BANDA DE PERCEPCIÓN (mediana±2·MAD
+  robustos de la zona) + bloque NSE del entorno (AGEB más cercano, tolerancia ±1 rango) +
+  isócrona primaria. Los que no cumplen → SECUNDARIOS con nota "distinta percepción de
+  valor/NSE (cliente compartido)". `criterio_directos` declarado en payload. Con esto Vivia
+  ($44-46k), Porta ($65k) y Lanka ($72k) salen de directos en ese pin; Montára ($84.6k) queda
+  según banda. La tabla de percepción/lista queda coherente con el rango (misma banda).
+- **FIX 2 · Renta H8 estricto**: `derive_productos_renta` exige ≥3 tipologías de renta
+  OBSERVADA en zona; sin observación → [] (N/D), nunca la escalera modelada ($63–$235/m²/mes
+  que Héctor volvió a ver en Comercio/Retail).
+- **FIX 3 · Captable con masa real**: hogares del DI captable (XLSX) por NSE inyectados en
+  orígenes cuando el KMZ no publica masa (`hogares_di` + `masa_di`), y `viajes_destino_dia`
+  desde el ancla censal OD cuando el origen trae municipio. El diseño completo (% de población
+  con viajes al destino por AGEB + edad/ingreso/gasto/perfil) queda como CAPTABLE-V3 en
+  backlog: requiere bajar el ancla municipal a AGEB (IPF) — documentación metodológica en
+  DISENO_OD_SINTETICO.md.
+- **FIX 4 · Front limpio (directivas)**: no se muestra la fuente de isócronas NI iso_nota;
+  tabla de extranjero SOLO si hay datos (sin "próximamente"); movilidad sin "próximamente" ni
+  fuentes (alcance peatonal + masa real; sin bloque vehicular hasta tener medición); notas
+  internas de tickets eliminadas también del texto del payload.
+- **FIX 5 · Arquitectura de contención**: `verificacion/verify_reglas.py` — 14 invariantes de
+  negocio (front sin fuente/selector/próximamente/tickets; directos por banda; renta observada;
+  soporte de muestra; NSE activo; TCA única; captable siempre; cadena backend) + chequeo
+  opcional de payload. Integrado como paso 5b del workflow en CLAUDE.md. Falla = no se entrega.
+- Validación: py_compile OK · node --check OK (con reparación de template literal roto por la
+  edición de la línea de fuente — detectado por el propio workflow) · regresión N3 OK ·
+  verify_reglas 14/14 OK. Pendiente post-push: re-validar el pin reportado y las anclas en
+  producción. Revisada dos veces.
