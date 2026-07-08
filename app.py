@@ -4325,7 +4325,7 @@ def _od_parse_canonico(texto_csv: str) -> Dict[str, Dict[tuple, float]]:
         raise ValueError(f"ancla OD sin columnas reconocibles: {head[:6]}")
     out: Dict[str, Dict[tuple, float]] = {"trabajo": {}, "estudio": {}}
     for l in lineas[1:]:
-        p = l.split(sep)
+        p = [c.strip().strip('"').strip("'") for c in l.split(sep)]
         if len(p) <= max(io_, id_, iv):
             continue
         try:
@@ -4342,6 +4342,69 @@ def _od_parse_canonico(texto_csv: str) -> Dict[str, Dict[tuple, float]]:
     if not out["trabajo"] and not out["estudio"]:
         raise ValueError("ancla OD sin flujos > 0")
     return out
+
+
+def _od_parse_tabulado_inegi(xlsx_bytes: bytes) -> Dict[str, Dict[tuple, float]]:
+    """Parsea el TABULADO REAL de Movilidad cotidiana (Censo 2020 · Cuestionario Ampliado,
+    estatal/municipal) — estructura verificada contra cpv2020_a_nl_10 (8 jul 2026):
+      hoja '14' = movilidad LABORAL por municipio · hoja '02' = ESCOLAR por municipio;
+      columnas: [1] Municipio ('001 Abasolo*') · [2] Sexo · [3] Estimador · [4] población ·
+      [6] % en el mismo municipio · [7] % en otro municipio · [9] % en otra entidad o país.
+    IMPORTANTE (distinción de Héctor): esto es movilidad COTIDIANA (viajes diarios al
+    trabajo/escuela), NO migración. El tabulado da VOLÚMENES DE SALIDA por categoría
+    (mismo municipio / otro municipio / otra entidad), no el municipio destino específico
+    (ese vive en microdatos · v2.2). Se emiten flujos canónicos con destinos-categoría:
+    '(MISMO MUNICIPIO)', '(OTRO MUNICIPIO)', '(OTRA ENTIDAD)'."""
+    wb = openpyxl.load_workbook(io.BytesIO(xlsx_bytes), data_only=True, read_only=True)
+    hojas = {"trabajo": "14", "estudio": "02"}
+    out: Dict[str, Dict[tuple, float]] = {"trabajo": {}, "estudio": {}}
+    for motivo, hoja in hojas.items():
+        if hoja not in wb.sheetnames:
+            continue
+        ws = wb[hoja]
+        for row in ws.iter_rows(values_only=True, min_row=10):
+            if len(row) < 10:
+                continue
+            muni_raw, sexo, estim = row[1], row[2], row[3]
+            if not muni_raw or str(sexo).strip() != "Total" or str(estim).strip() != "Valor":
+                continue
+            m = str(muni_raw).strip()
+            if m.lower() == "total":
+                continue
+            nombre = _norm_nombre(re.sub(r"^\d+\s*", "", m).rstrip("*").strip())
+            if not nombre:
+                continue
+            try:
+                pob = float(row[4] or 0)
+                pct_mismo = float(row[6] or 0)
+                pct_otro = float(row[7] or 0)
+                pct_otra_ent = float(row[9] or 0)
+            except (TypeError, ValueError):
+                continue
+            if pob <= 0:
+                continue
+            out[motivo][(nombre, "(MISMO MUNICIPIO)")] = round(pob * pct_mismo / 100.0, 1)
+            out[motivo][(nombre, "(OTRO MUNICIPIO)")] = round(pob * pct_otro / 100.0, 1)
+            out[motivo][(nombre, "(OTRA ENTIDAD)")] = round(pob * pct_otra_ent / 100.0, 1)
+    if not out["trabajo"] and not out["estudio"]:
+        raise ValueError("tabulado sin hojas 14/02 reconocibles")
+    return out
+
+
+def _od_salientes(flujos: Dict[str, Dict[tuple, float]], muni_pin: str) -> Dict[str, float]:
+    """Masa de commuters de cada municipio que puede llegar al pin (v2.1):
+    munis distintos al del pin → salientes '(OTRO MUNICIPIO)' (+ '(OTRA ENTIDAD)' si el
+    pin estuviera en otra entidad; se incluye para coronas interestatales);
+    el municipio DEL pin → su flujo '(MISMO MUNICIPIO)' (trabajan dentro del municipio)."""
+    d_pin = _norm_nombre(muni_pin)
+    masa: Dict[str, float] = {}
+    for motivo, m in (flujos or {}).items():
+        for (o, cat), v in m.items():
+            if o == d_pin and "MISMO MUNICIPIO" in cat:
+                masa[o] = masa.get(o, 0.0) + v
+            elif o != d_pin and ("OTRO MUNICIPIO" in cat or "OTRA ENTIDAD" in cat):
+                masa[o] = masa.get(o, 0.0) + v
+    return masa
 
 
 async def _od_cargar_estado(estado_nombre: str) -> Dict[str, Any]:
@@ -4373,11 +4436,19 @@ async def _od_cargar_estado(estado_nombre: str) -> Dict[str, Any]:
                 r.raise_for_status()
                 contenido = r.content
             if contenido[:2] == b"PK":   # zip o xlsx
+                # ¿Es el TABULADO INEGI de movilidad? (xlsx con hojas 14/02) → parser real
+                try:
+                    flujos = _od_parse_tabulado_inegi(contenido)
+                    res.update(ok=True, fuente=f"autofetch_tabulado:{url[:80]}", flujos=flujos)
+                    OD_CACHE[ent] = res
+                    return res
+                except Exception:
+                    pass
                 zf = zipfile.ZipFile(io.BytesIO(contenido))
                 csvs = [n for n in zf.namelist() if n.lower().endswith(".csv")]
                 if csvs:
                     texto = zf.read(csvs[0]).decode("utf-8", errors="ignore")
-                else:   # xlsx → volcar a canónico
+                else:   # xlsx genérico → volcar a canónico
                     wb = openpyxl.load_workbook(io.BytesIO(contenido), data_only=True, read_only=True)
                     ws = wb.active
                     texto = "\n".join(",".join("" if c is None else str(c) for c in row)
@@ -4431,6 +4502,13 @@ async def derive_mercado_captable_v2(agebs_geo_capt, natural_ring, pin_lng, pin_
     for motivo, mm in marg.items():
         for o, v in mm.items():
             entr[o] = entr.get(o, 0.0) + v
+    modo_ancla = "destinos_censo"
+    if not entr:
+        # v2.1 · TABULADO (volúmenes de salida observados, sin destino específico):
+        # la masa commuter observada de cada municipio ancla los VOLÚMENES; el destino
+        # (hacia el pin) se modela por gravedad. Declarado como ancla PARCIAL.
+        entr = _od_salientes(ancla["flujos"], muni_pin)
+        modo_ancla = "salientes_tabulado"
     if not entr:
         v1["ancla_censal"] = {"ok": True, "fuente": ancla.get("fuente"),
                               "nota": f"El ancla censal no registra flujos hacia {muni_pin} · share por modelo (v1)."}
@@ -4449,10 +4527,11 @@ async def derive_mercado_captable_v2(agebs_geo_capt, natural_ring, pin_lng, pin_
         m = _norm_nombre(o.get("municipio"))
         o2 = dict(o)
         if m in con_ancla and peso_muni.get(m):
-            # share municipal OBSERVADO × distribución Huff dentro del municipio
+            # share municipal ANCLADO × distribución Huff dentro del municipio
             share_m_obs = con_ancla[m] / tot_censo * 100.0
             o2["share_pct"] = round(share_m_obs * ((o.get("share_pct") or 0.0) / peso_muni[m]), 1)
-            o2["fuente_share"] = "censo_2020"
+            o2["fuente_share"] = ("censo_2020" if modo_ancla == "destinos_censo"
+                                  else "tabulado_salientes_2020")
             o2["viajes_censales_muni"] = round(con_ancla[m])
         else:
             o2["fuente_share"] = "modelo_huff"
@@ -4466,16 +4545,22 @@ async def derive_mercado_captable_v2(agebs_geo_capt, natural_ring, pin_lng, pin_
     v1["metodo"] = "od_sintetico_inegi_v1"
     v1["ancla_censal"] = {
         "ok": True, "fuente": ancla.get("fuente"),
+        "modo": modo_ancla,
         "muni_destino": muni_pin,
         "viajes_totales_censo": round(tot_censo),
         "cobertura_corona_pct": round(cobertura * 100, 1),
-        "confianza": "anclado_censo" if cobertura >= OD_COBERTURA_MIN else "parcialmente_anclado",
-        "motivos_disponibles": sorted(marg.keys()),
+        "confianza": (("anclado_censo" if cobertura >= OD_COBERTURA_MIN else "parcialmente_anclado")
+                      if modo_ancla == "destinos_censo" else "anclado_parcial_salientes"),
+        "motivos_disponibles": sorted((marg or ancla["flujos"]).keys()),
     }
-    v1["nota"] = ("Share por municipio ANCLADO a flujos observados del Censo 2020 "
-                  "(trabajo/estudio) y desagregado por gravedad dentro de cada municipio. "
-                  "Municipios sin flujo censal → modelo declarado. Compras/turismo siguen "
-                  "por modelo hasta calibrar (DENUE/DATATUR).")
+    v1["nota"] = (("Share por municipio ANCLADO a flujos observados del Censo 2020 "
+                   "(trabajo/estudio) y desagregado por gravedad dentro de cada municipio. "
+                   "Municipios sin flujo censal → modelo declarado.")
+                  if modo_ancla == "destinos_censo" else
+                  ("Volúmenes de commuters por municipio ANCLADOS al Censo 2020 (movilidad "
+                   "cotidiana: salen a trabajar/estudiar a otro municipio); el destino hacia "
+                   "el pin se modela por gravedad (ancla PARCIAL · la matriz destino-específica "
+                   "llegará de los microdatos · v2.2). NO es migración: son viajes diarios."))
     return v1
 
 

@@ -1,4 +1,4 @@
-docs/referencias/
+docs/referencias/*.pptx
 snapshots/
 .DS_Store
 ~$*.pptx
