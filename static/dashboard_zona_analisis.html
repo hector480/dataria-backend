@@ -6758,7 +6758,7 @@ function zaDrawZona(zonaPoly, ajuste){
     color:'#8B5CF6', fillColor:'#8B5CF6', fillOpacity:0.22,
     weight:3.5, dashArray:'8 4', opacity:1
   }).addTo(zaMap);
-  const etiqueta = ajuste && ajuste.metodo==='mercado_del_pin' ? 'mercado del predio · competidores directos'
+  const etiqueta = (ajuste && (ajuste.metodo==='mercado_del_pin' || ajuste.metodo==='banda_percepcion')) ? 'mercado del predio · competidores directos'
                  : (ajuste && ajuste.metodo==='cluster_alto_valor' ? 'clúster de alto valor' : 'isócrona 8 min');
   zaLayerZona.bindTooltip('Zona de influencia real · '+etiqueta, {sticky:true});
   try{ zaLayerZona.bringToFront(); }catch(e){}
@@ -6783,7 +6783,10 @@ function zaRenderResults(perfil, proyectos, ajuste){
     ? `<div class="za-res-note">Isócrona de 24 min segmentada en anillos de <b>8</b> y <b>14</b> min para definición de producto de vivienda.</div>` : '';
 
   const mk = ajuste.mercados || {};
-  const barreraTxt = ajuste.barrera
+  const nDir = (ajuste.competidores && ajuste.competidores.n_directos) || 0;
+  const barreraTxt = ajuste.metodo==='banda_percepcion'
+    ? `Zona real = casco de los <b>${nDir} competidores directos</b> (misma banda de percepción de valor) recortado a la isócrona · cobertura ${ajuste.cobertura_pct!=null?ajuste.cobertura_pct:'N/D'}% de la isócrona.`
+    : ajuste.barrera
     ? (ajuste.metodo==='mercado_del_pin'
         ? `<b>${mk.k||2} mercados</b> detectados en la isócrona (separabilidad: gap ${mk.gap!=null?mk.gap:'N/D'}, varianza explicada ${mk.var_explained!=null?(mk.var_explained*100).toFixed(0)+'%':'N/D'}). La zona real es el <b>mercado del predio</b> · ${ajuste.n_zona} proyectos · cobertura ${ajuste.cobertura_pct}% de la isócrona.`
         : (ajuste.metodo==='cluster_alto_valor'
@@ -7322,11 +7325,14 @@ function zaRenderCaptable(mc){
         {color:'#F59E0B', fill:false, weight:2, dashArray:'10 6'}).addTo(zaMap);
     }catch(e){}
   }
+  /* CAPTABLE-V3 · commuters/día por origen (backend calcula; aquí solo se pinta si existen) */
+  const hayCommuters = (mc.origenes||[]).some(o=>o.commuters_dia!=null);
   const filas = (mc.origenes||[]).slice(0,8).map(o=>`<tr>
     <td><span class="badge b-blue">${o.nse}</span></td>
     <td>${o.municipio||'—'}</td>
     <td>${o.dist_km_mediana} km</td>
-    <td>${o.hogares_est!=null?o.hogares_est.toLocaleString('es-MX'):'—'}</td>
+    <td>${o.hogares_est!=null?o.hogares_est.toLocaleString('es-MX'):(o.hogares_di!=null?o.hogares_di.toLocaleString('es-MX'):'—')}</td>
+    ${hayCommuters?`<td>${o.commuters_dia!=null?o.commuters_dia.toLocaleString('es-MX')+(typeof o.pct_poblacion_commuter==='number'?' <span style="color:#8A90A6;">('+o.pct_poblacion_commuter+'% de su población)</span>':''):'—'}</td>`:''}
     <td style="font-weight:700;color:var(--green);">${o.share_pct!=null?o.share_pct+'%':'—'}</td>
   </tr>`).join('');
   const ext = mc.extranjero || {};
@@ -7336,9 +7342,17 @@ function zaRenderCaptable(mc){
         🌎 Población extranjera en la corona: <b>${ext.share_pct}%</b> (${(ext.poblacion_extranjera||0).toLocaleString('es-MX')} personas)
         ${ext.zona_turistica?` · <b>ZONA TURÍSTICA/EXTRANJERA</b> (≥${ext.umbral_pct}%)`:''}</div>`
     : '';
+  /* Perfil de commuters (CAPTABLE-V3) · solo se pinta lo que el backend publica */
+  const pc = mc.perfil_captable || null;
+  const pcHtml = pc ? `<div class="za-res-note" style="margin-top:6px;">
+      Commuters diarios hacia el destino: <b>${pc.commuters_total_dia!=null?pc.commuters_total_dia.toLocaleString('es-MX'):'N/D'}</b>
+      ${pc.distribucion_nse_pct?` · NSE: ${Object.entries(pc.distribucion_nse_pct).slice(0,4).map(([k,v])=>k+' '+v+'%').join(' · ')}`:''}
+      ${typeof pc.ingreso_hogar_mensual==='number'?` · Ingreso hogar: <b>$${pc.ingreso_hogar_mensual.toLocaleString('es-MX')}/mes</b>`:''}
+    </div>` : '';
   out.innerHTML = `<div class="za-res-card">
-    <div class="za-res-h">Mercado captable · orígenes <span style="font-weight:400;font-size:10px;color:#8A90A6;">anillo ${mc.anillo_min} min (${mc.fuente_isocrona||''}) · ${mc.n_agebs_corona} AGEBs en corona · masa: ${mc.masa_fuente||''}</span></div>
-    <div class="tbl-wrap"><table style="font-size:11px;"><thead><tr><th>NSE</th><th>Municipio</th><th>Dist. mediana</th><th>Hogares est.</th><th>Share (Huff)</th></tr></thead><tbody>${filas}</tbody></table></div>
+    <div class="za-res-h">Mercado captable · orígenes <span style="font-weight:400;font-size:10px;color:#8A90A6;">anillo ${mc.anillo_min} min · ${mc.n_agebs_corona} AGEBs en corona</span></div>
+    <div class="tbl-wrap"><table style="font-size:11px;"><thead><tr><th>NSE</th><th>Municipio</th><th>Dist. mediana</th><th>Hogares est.</th>${hayCommuters?'<th>Viajes/día al destino</th>':''}<th>Share</th></tr></thead><tbody>${filas}</tbody></table></div>
+    ${pcHtml}
     ${extHtml}
     <div class="za-res-sub" style="margin-top:6px;">${mc.nota||''}</div>
   </div>`;

@@ -206,3 +206,18 @@ hotel (prefijo por uso).
 | movilidad.vehicular.indice_fluidez | float | mediana velocidad_actual/flujo_libre (1.0=libre) · pin+4 cardinales ~1 km |
 | movilidad.vehicular.velocidad_kmh / velocidad_libre_kmh | float | medianas robustas (km/h) |
 | movilidad.vehicular.n_puntos / fuente / nota | — | tomtom_flow · instantánea, no promedio histórico |
+
+## 8h · ZONA-RÍO + RENTA-ANCLA + CAPTABLE-V3 (8 jul 2026 tarde · solo crece)
+| Variable | Tipo | Descripción |
+|---|---|---|
+| perception.metodo = "banda_percepcion" | str | Zona morada = casco convexo de los ≥3 competidores DIRECTOS de banda ∩ isócrona (clip Sutherland-Hodgman `_clip_ring_sutherland_hodgman`). La zona no cruza río/bloques de distinta percepción-NSE |
+| perception.cobertura_pct | float | Con banda_percepcion: área clip / área anillo ×100 (1 decimal, `_area_ring_km2`) |
+| productos_renta[i].ancla_obs{p10, p90, n_obs, dentro_banda} | dict | Banda P10–P90 de renta/m² OBSERVADA (F___M2 de vv_renta = $/m²/mes; respaldo F____UNIDAD_MENSUAL/ÁREA_PRIVATIVA). pm2_renta = interpolación en banda por posición NSE; fuera de banda → aplicable=False y pm2_renta=N/D |
+| mercado_captable.metodo = "gravedad_ipf_v3" | str | Viajes municipales censales desagregados a celdas NSE×municipio de la corona por gravedad (Ortúzar & Willumsen) + IPF 1 iteración (totales municipales EXACTOS) |
+| mercado_captable.confianza = "anclado_municipal" | str | El volumen municipal es censal observado; el reparto a celdas es modelo |
+| mercado_captable.ipf{munis_anclados, commuters_total_dia, f_prox_por_nse} | dict | Trazabilidad del IPF (`_captable_v3_ipf`) |
+| origenes[i].commuters_dia | int | Viajes/día del origen hacia el destino (suma de sus celdas) |
+| origenes[i].pct_poblacion_commuter | float/"N/D" | commuters/población DI de la celda ×100 · N/D si >100 (no interpretable: municipio ⊃ corona) o sin población |
+| origenes[i].hogares_di / hogares_di_nota | int/str | (8 jul mañana) hogares reales del DI captable por NSE cuando el KMZ no publica masa |
+| mercado_captable.perfil_captable{commuters_total_dia, distribucion_nse_pct, edad_grupos, ingreso_hogar_mensual, gasto_anual, alcance} | dict | Perfil de commuters: NSE del modelo anclado + edad/ingreso/gasto REALES del XLSX de la corona; dimensión ausente = "N/D" |
+| mercado_captable.columnas_faltantes | list | Columnas del DI que faltaron para el perfil (vacía si nada faltó) |

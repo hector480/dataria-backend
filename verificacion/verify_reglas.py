@@ -28,6 +28,19 @@ chk("TCA única", app.count('NSE_TCA = {') == 1)
 chk("captable siempre (default True)", 'incluir_captable: bool = True' in app)
 chk("cadena de isócronas backend", '"valhalla,predik"' in app)
 chk("sin notas de ticket en payload", 'ticket P1' not in app)
+# ── LOTE 8 jul (tarde) · ZONA-RÍO + RENTA-ANCLA + CAPTABLE-V3 ──
+chk("zona morada = casco de directos de banda ∩ isócrona (clip S-H)",
+    '"banda_percepcion"' in app and '_clip_ring_sutherland_hodgman' in app)
+chk("renta interpolada SOLO en banda observada P10–P90",
+    'p10_obs' in app and 'p90_obs' in app and 'aplicable_obs' in app)
+chk("captable v3 = IPF anclado a totales municipales censales",
+    '"gravedad_ipf_v3"' in app and '"anclado_municipal"' in app and '_captable_v3_ipf' in app)
+chk("front captable sin fuente de isócrona ni masa interna",
+    'mc.fuente_isocrona' not in html and 'mc.masa_fuente' not in html)
+chk("front pinta commuters solo si el backend los publica",
+    'Viajes/día al destino' in html and 'hayCommuters' in html)
+chk("backend sin promesas de servicios externos en notas captable",
+    'Predik OD' not in app)
 # ── PAYLOAD (opcional): invariantes de datos ──
 if len(sys.argv) > 1:
     d = json.load(open(sys.argv[1]))

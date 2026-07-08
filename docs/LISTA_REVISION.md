@@ -1314,3 +1314,61 @@ verify_all 8/8 + render 10/10 tras el blindaje.
 - Pendiente confirmado con Héctor tras push: puntos azules de primarios en el mapa (el código
   los pinta si traen lat/lng; verificar payload del pin en producción) y revisión conjunta de
   los 5 directos de banda. py_compile/node/verify_reglas OK.
+
+## 2026-07-08 · LOTE ZONA-RÍO + RENTA-ANCLA + CAPTABLE-V3 (directivas de Héctor · pin 25.65766,-100.44849)
+- **1 · ZONA-RÍO (zona morada por directos de banda)**: con ≥3 competidores DIRECTOS de banda,
+  `perception.zona_poligono` = casco convexo de los directos RECORTADO a la isócrona (clip
+  Sutherland-Hodgman puro Python `_clip_ring_sutherland_hodgman`: sujeto = isócrona cóncava,
+  recorte = casco convexo — orden correcto porque S-H exige clip convexo). `metodo=
+  "banda_percepcion"`, `cobertura_pct` = área clip/área anillo (`_area_ring_km2`, 1 decimal:
+  el casco de directos pegados al pin puede ser <1%). Con <3 directos → método anterior
+  intacto (no se inventa polígono). CAUSA RAÍZ del defecto: la zona morada la definía el
+  clúster espacial (hull del mercado del pin), no los comparables de banda → podía cruzar el
+  río hacia bloques de otra percepción-NSE. Front: etiqueta del morado + texto de zona para
+  el método nuevo (solo pintado; mercado_del_pin intacto — probado).
+- **2 · AZULES (puntos primarios)**: verificación dirigida con datos reales del pin: los 3
+  sets llevan lat/lng al 100% (5 directos, 0 primarios, 21 secundarios) y `zaDrawCompetidores`
+  los pinta por set. NO hay pérdida de coordenadas. CAUSA RAÍZ de "cero puntos azules": con
+  `metodo=isocrona` el morado inicial = isócrona completa → todo el 8 min entra como directo
+  y la reclasificación por banda manda los de otra percepción a SECUNDARIO (regla confirmada
+  del lote COMPARABLES-BANDA: "dentro de la isócrona con otra percepción = secundario").
+  Azules = 0 es LEGÍTIMO en ese pin; los 21 se pintan verdes con sus rangos superior/inferior.
+- **3 · RENTA-ANCLA**: `derive_productos_renta` ancla cada producto a la banda P10–P90 de la
+  renta/m² OBSERVADA (`_stats_robustas` sobre F___M2 de vv_renta). pm² publicado =
+  interpolación en banda por posición NSE; segmento cuyo pm² pagable (renta_mid/m²) cae fuera
+  → `aplicable=False` y `pm2_renta="N/D"` (la escalera PM2_POR_NSE ya no publica $/m² jamás).
+  CAUSA RAÍZ adicional descubierta con datos reales: el cociente de validación usaba
+  `F____UNIDAD`, campo que NO existe en la capa de renta (es `F____UNIDAD_MENSUAL`) → el
+  ancla del H8 original nunca operaba; corregido (F___M2 verificado = $/m²/mes: 23,500/112 =
+  209.82). Pin del director: banda observada [209.82, 420] · n=20; solo A·$15-25M y A·>$25M
+  publican pm² ($388 = interpolado 0.85); 7 segmentos N/D legítimos (pagan $64–204/m²/mes,
+  bajo el P10 observado — verificado segmento por segmento).
+- **4 · CAPTABLE-V3 (gravedad+IPF · Ortúzar & Willumsen · DISENO_OD_SINTETICO.md)**:
+  `_captable_v3_ipf` desagrega los viajes municipales censales (`_od_salientes`) a celdas
+  NSE×municipio de la corona: w = hogares_celda (XLSX real; corona = filas del DI captable
+  excluidas por CVEGEO del DI natural) × f_prox(NSE) (promedio de 1/(1+d)^HUFF_EXP de los
+  AGEB del KMZ de la corona — misma técnica validada de `_factor_proximidad_por_nse`);
+  IPF de 1 iteración → TOTALES MUNICIPALES EXACTOS (probado con mocks y con datos reales:
+  MTY 95,926 · SPGG 30,257 · Sta. Catarina 139,496 · error <1e-6). LIMITACIÓN DECLARADA: el
+  KMZ no publica CVEGEO/municipio/hogares por AGEB → la celda NSE×municipio es la máxima
+  granularidad sin inventar. Orígenes: `commuters_dia` + `pct_poblacion_commuter` (N/D si
+  >100%: el marginal municipal completo no es interpretable a la escala de una corona
+  parcial — integridad, no se publica un % imposible). `perfil_captable` con distribución
+  NSE de commuters + edad/ingreso/gasto del XLSX de la corona (las tres columnas EXISTEN en
+  la capa: bandas de edad, IXH, Gasto *); `columnas_faltantes=[]`. `metodo="gravedad_ipf_v3"`,
+  `confianza="anclado_municipal"`. Municipio sin flujo censal → sin commuters (probado).
+- **5 · FRONT captable**: columna "Viajes/día al destino" (commuters + % solo si numérico)
+  condicionada a que el backend publique el dato; línea de perfil de commuters; QUITADOS
+  `fuente_isocrona` y `masa_fuente` del encabezado (fuentes/notas internas — directiva);
+  nota v1 sin promesas de terceros ("Predik OD" eliminado del backend).
+- **Validación**: py_compile OK · node --check OK · `verify_unit.py` NUEVO (23 checks: IPF
+  exacto con mocks, clip ⊆ anillo/casco con isócrona cóncava en L + muestreo interior 625
+  puntos, renta dentro/fuera de banda, H8 intacto) OK 100% · `verify_reglas.py` ampliado a
+  20 invariantes (6 nuevos del lote) OK 100% · smoke Node de zaRenderCaptable/zaDrawZona/
+  zaRenderResults 6/6 (estados: v3 completo, sin commuters, nulo/inactivo, banda, regresión
+  mercado_del_pin) · EN VIVO PRSP (pin del director, anillo local — Valhalla sigue bloqueado
+  en sandbox): banda $61,353–$99,246/m² (mediana $80,300 · MAD 9,473) → 5 directos (Jardín
+  Secreto, Mun, Vía Cordillera-Azuria, We2t T4/T5); Vivia ($44-46k), Porta Huasteca ($65.5k)
+  y Lanka ($72.4k) NO directos y FUERA de la zona clip (0.09 km² ⊆ anillo, vértices y
+  muestreo verificados). Pendiente post-push: re-validar pin y anclas en producción con
+  isócronas reales. Revisada dos veces.

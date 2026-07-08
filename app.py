@@ -233,6 +233,77 @@ def _convex_hull(points: List[List[float]]) -> List[List[float]]:
     return ring
 
 
+def _clip_ring_sutherland_hodgman(subject_ring: List[List[float]],
+                                  clip_ring: List[List[float]]) -> List[List[float]]:
+    """Intersección de polígonos por Sutherland-Hodgman (puro Python, sin dependencias).
+
+    ZONA-RÍO (regla de Héctor · 8 jul 2026): la zona morada = casco convexo de los
+    competidores DIRECTOS de banda RECORTADO a la isócrona, para que nunca cruce el río
+    ni bloques de distinta percepción/NSE. Sutherland-Hodgman exige que el polígono DE
+    RECORTE sea CONVEXO: aquí el recorte es el casco de directos (convexo por construcción
+    de _convex_hull) y el SUJETO es la isócrona (puede ser cóncava) → el resultado es la
+    intersección casco ∩ isócrona.
+
+    Anillos [[lng, lat], ...] abiertos o cerrados. Devuelve anillo CERRADO o [] si la
+    intersección es vacía o degenerada (integridad: no se inventa polígono).
+    """
+    def _abierto(r):
+        r = [[float(p[0]), float(p[1])] for p in (r or [])
+             if p is not None and p[0] is not None and p[1] is not None]
+        if len(r) >= 2 and r[0] == r[-1]:
+            r = r[:-1]
+        return r
+
+    subj = _abierto(subject_ring)
+    clip = _abierto(clip_ring)
+    if len(subj) < 3 or len(clip) < 3:
+        return []
+    # Orientar el polígono de recorte CCW (área firmada > 0) para el test "inside"
+    area2 = sum(clip[i][0] * clip[(i + 1) % len(clip)][1]
+                - clip[(i + 1) % len(clip)][0] * clip[i][1] for i in range(len(clip)))
+    if area2 < 0:
+        clip = clip[::-1]
+
+    def _dentro(p, a, b):
+        return (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]) >= -1e-12
+
+    def _interseccion(p, q, a, b):
+        # Intersección de la recta p→q con la recta a→b (paramétrica; denominador ≠ 0
+        # garantizado porque solo se llama al CRUZAR el semiplano de la arista a→b).
+        dxs, dys = q[0] - p[0], q[1] - p[1]
+        dxc, dyc = b[0] - a[0], b[1] - a[1]
+        den = dxs * dyc - dys * dxc
+        if abs(den) < 1e-18:
+            return q
+        t = ((a[0] - p[0]) * dyc - (a[1] - p[1]) * dxc) / den
+        return [p[0] + t * dxs, p[1] + t * dys]
+
+    salida = subj
+    for i in range(len(clip)):
+        a, b = clip[i], clip[(i + 1) % len(clip)]
+        entrada, salida = salida, []
+        if not entrada:
+            break
+        s = entrada[-1]
+        for e in entrada:
+            if _dentro(e, a, b):
+                if not _dentro(s, a, b):
+                    salida.append(_interseccion(s, e, a, b))
+                salida.append(e)
+            elif _dentro(s, a, b):
+                salida.append(_interseccion(s, e, a, b))
+            s = e
+    # Deduplicar consecutivos (vértices repetidos por intersecciones en esquinas)
+    limpio = []
+    for p in salida:
+        if not limpio or abs(p[0] - limpio[-1][0]) > 1e-12 or abs(p[1] - limpio[-1][1]) > 1e-12:
+            limpio.append([p[0], p[1]])
+    if len(limpio) < 3:
+        return []
+    limpio.append(list(limpio[0]))  # cerrar el anillo
+    return limpio
+
+
 # ════════════════════ Detección universal de mercados (clustering) ════════════════════
 #
 # REGLA UNIVERSAL DE ZONA DE INFLUENCIA REAL
@@ -3336,6 +3407,17 @@ def derive_productos_renta(ft_renta: List[Dict], segments: List[Dict]) -> List[D
                   if _num((r.get("attributes") or {}).get("F___M2"))]
     if len(_renta_obs) < 3:
         return []
+    # ANCLA-OBS (Héctor · 8 jul 2026): cada producto de renta se ANCLA a la banda P10–P90
+    # de la renta/m² OBSERVADA en la zona (campo F___M2 de la capa vv_renta = $/m²/mes,
+    # verificado contra datos reales: F____UNIDAD_MENSUAL/ÁREA_PRIVATIVA). El pm² del
+    # producto = interpolación dentro de la banda observada por posición del NSE; si el
+    # pm² que el segmento puede pagar (renta_mid/m²) cae FUERA de la banda observada, no
+    # hay observación que lo respalde → aplicable=False y pm2_renta=N/D. La escalera
+    # PM2_POR_NSE solo posiciona el programa (ticket→tamaño), NUNCA publica $/m² de renta.
+    _pm2_obs_vals = [v for v in (_num((r.get("attributes") or {}).get("F___M2"))
+                                 for r in _renta_obs) if v and v > 0]
+    _st_obs = _stats_robustas(_pm2_obs_vals)
+    p10_obs, p90_obs = _st_obs.get("p10"), _st_obs.get("p90")
     PM2_POR_NSE = {"A": 140000, "B": 95000, "C+": 55000, "C": 40000,
                    "D+": 30000, "D": 22000, "E": 16000}
 
@@ -3367,14 +3449,23 @@ def derive_productos_renta(ft_renta: List[Dict], segments: List[Dict]) -> List[D
         if ticket_m <= 25.0:   return "3-4 Rec"
         return "4 Rec PH"
 
-    # renta/m² observada de la oferta real (para validar/anclar)
+    # renta/m² observada por COCIENTE (validación cruzada del F___M2 y respaldo del ancla).
+    # Campo real de la capa de renta: F____UNIDAD_MENSUAL (F____UNIDAD no existe en renta —
+    # verificado contra datos reales PRSP 8 jul 2026; por eso este bloque nunca anclaba).
     pm2_renta_obs = []
     for t in ft_renta:
         a = t.get("attributes", {})
-        ap = _num(a.get("ÁREA_PRIVATIVA")); pr = _num(a.get("F____UNIDAD"))
+        ap = _num(a.get("ÁREA_PRIVATIVA"))
+        pr = _num(a.get("F____UNIDAD_MENSUAL")) or _num(a.get("F____UNIDAD"))
         if ap and 25 <= ap <= 500 and pr and pr > 1000:
             pm2_renta_obs.append(pr / ap)
     pm2_renta_zona = round(statistics.median(pm2_renta_obs)) if pm2_renta_obs else None
+    # Respaldo del ancla: si F___M2 no dio banda, usar la banda del cociente observado.
+    if p10_obs is None and pm2_renta_obs:
+        _st_obs = _stats_robustas(pm2_renta_obs)
+        p10_obs, p90_obs = _st_obs.get("p10"), _st_obs.get("p90")
+    if p10_obs is None:
+        return []   # sin banda observada no hay ancla → N/D legítimo (integridad)
 
     # propensión a rentar de la zona (mkt_renta / mkt_total) para distribuir el sweet spot
     best = max(segments, key=lambda s: s.get("mkt_renta", 0) or 0, default=None)
@@ -3397,7 +3488,19 @@ def derive_productos_renta(ft_renta: List[Dict], segments: List[Dict]) -> List[D
         lo_b, hi_b = _banda_tamano_r(ticket_M_r)
         pos = {"A": 0.85, "B": 0.65, "C+": 0.5, "C": 0.4, "D+": 0.3, "D": 0.25, "E": 0.2}.get(s["NSE"], 0.5)
         m2 = max(M2_MIN, min(M2_MAX, round(lo_b + (hi_b - lo_b) * pos))) if ticket_M_r else None
-        pm2_renta = round(renta_mid / m2) if (renta_mid and m2) else None
+        # ANCLA-OBS: pm² del segmento (lo que puede pagar) vs banda observada P10–P90.
+        # Dentro de banda → pm² publicado = interpolación en la banda OBSERVADA por posición
+        # del NSE (dato real de mercado). Fuera de banda → sin observación que lo respalde:
+        # aplicable=False y pm2_renta=N/D (nunca la escalera modelada).
+        pm2_seg = (renta_mid / m2) if (renta_mid and m2) else None
+        if pm2_seg is not None and p10_obs <= pm2_seg <= p90_obs:
+            pm2_renta = round(p10_obs + (p90_obs - p10_obs) * pos)
+            aplicable_obs = True
+            renta_mid = pm2_renta * m2   # renta mensual coherente con el pm² anclado
+        else:
+            pm2_renta = None
+            aplicable_obs = False
+            renta_mid = None
         # ABSORCIÓN de renta = nuevas familias que rentan/mes (mkt_renta es stock; usamos nuevas_fam × propensión a rentar)
         nf = s.get("nuevas_fam", 0) or 0
         mkt_total = s.get("mkt_total", 0) or 1
@@ -3413,10 +3516,13 @@ def derive_productos_renta(ft_renta: List[Dict], segments: List[Dict]) -> List[D
             "abs_renta": f"{abs_renta} contratos/mes" if abs_renta else "N/D",
             "ocupacion_target": "92%",
             "status": s.get("status", "atendido"),
-            "recomendado": (s.get("aplicable", True)
+            "recomendado": (s.get("aplicable", True) and aplicable_obs
                             and s.get("status") in ("sweet_spot", "desatendido", "oportunidad", "atendido")),
-            "aplicable": s.get("aplicable", True),
-            "featured": (best is not None and s is best),
+            "aplicable": s.get("aplicable", True) and aplicable_obs,
+            # ANCLA-OBS · transparencia: banda observada que respalda (o no) el pm² publicado
+            "ancla_obs": {"p10": p10_obs, "p90": p90_obs, "n_obs": _st_obs.get("n"),
+                          "dentro_banda": aplicable_obs},
+            "featured": (best is not None and s is best and aplicable_obs),
             "seg_renta": f"{s['NSE']} · {s['bucket']}",
             "mkt_segmento": round(s.get("mkt_renta") or 0),
             "nuevas_fam_year": nf,
@@ -4195,8 +4301,7 @@ def derive_mercado_captable(agebs_geo_capt: List[Dict], natural_ring: List[List[
         "origenes": [], "extranjero": None,
         "poligono_captable": poligono_captable,
         "nota": ("Share estimado por MODELO GRAVITACIONAL (Huff) sobre demografía real de "
-                 "la corona captable. Se actualizará a flujos origen-destino OBSERVADOS "
-                 "cuando el API de movilidad (Predik OD) esté disponible."),
+                 "la corona captable."),
     }
     if not corona:
         out["activo"] = False
@@ -4588,6 +4693,110 @@ async def derive_mercado_captable_v2(agebs_geo_capt, natural_ring, pin_lng, pin_
                    "el pin se modela por gravedad (ancla PARCIAL · la matriz destino-específica "
                    "llegará de los microdatos · v2.2). NO es migración: son viajes diarios."))
     return v1
+
+
+def _nse_txt_norm(v) -> Optional[str]:
+    """Normaliza una etiqueta NSE textual a las claves canónicas (A..E). None si no es NSE."""
+    if not v:
+        return None
+    cls = str(v).strip()
+    if cls in NSE_MAP:
+        return cls
+    cls2 = cls.replace(" plus", "+").replace("Plus", "+").replace(" ", "")
+    return cls2 if cls2 in NSE_MAP else None
+
+
+def _captable_v3_ipf(corona_rows: List[Dict], geo_corona: List[Dict],
+                     sal_municipal: Dict[str, float],
+                     pin_lng: float, pin_lat: float) -> Optional[Dict[str, Any]]:
+    """CAPTABLE-V3 · Desagregación de los viajes municipales OBSERVADOS (Censo 2020,
+    movilidad cotidiana · _od_salientes) a las celdas NSE×municipio de la CORONA captable,
+    por modelo de probabilidad tipo gravedad (metodología estándar Ortúzar & Willumsen ·
+    docs/DISENO_OD_SINTETICO.md) balanceado por IPF de 1 iteración:
+
+        w_celda = hogares_celda × f_prox(NSE)          (masa real × fricción de distancia)
+        commuters_celda = viajes_muni × w_celda / Σ w_celdas_del_municipio
+
+    → el TOTAL MUNICIPAL observado se conserva EXACTO (marginal de fila del IPF).
+
+    Insumos 100% reales:
+      • hogares_celda / población_celda: sumas de 'Hogares totales 2026' / 'Población
+        total 2026' del XLSX del DI captable (filas de la corona, excluidas por CVEGEO).
+      • f_prox(NSE) = promedio de 1/(1+dist_km_al_pin)^HUFF_EXP de los AGEB
+        georreferenciados del KMZ de la corona de ese NSE (misma técnica validada de
+        _factor_proximidad_por_nse). El KMZ no publica CVEGEO/municipio por AGEB
+        (limitación documentada de la capa): la fricción se evalúa por NSE y la masa por
+        celda NSE×municipio — máxima granularidad posible SIN inventar posiciones.
+      • Municipios sin flujo censal o sin filas en la corona → sin commuters (no se
+        inventa flujo). Sin insumos suficientes → None (el captable queda como estaba).
+    """
+    if not corona_rows or not sal_municipal:
+        return None
+    # ── Fricción por NSE desde el KMZ de la corona (posiciones reales) ──
+    lat0 = math.radians(pin_lat)
+    fr_por_nse: Dict[str, List[float]] = {}
+    fr_todos: List[float] = []
+    for g in (geo_corona or []):
+        if g.get("lat") is None or g.get("lng") is None:
+            continue
+        dlat = (g["lat"] - pin_lat) * 111.32
+        dlng = (g["lng"] - pin_lng) * 111.32 * math.cos(lat0)
+        f = 1.0 / ((1.0 + math.sqrt(dlat * dlat + dlng * dlng)) ** HUFF_EXP)
+        fr_todos.append(f)
+        k = _nse_txt_norm(g.get("nse_txt"))
+        if k:
+            fr_por_nse.setdefault(k, []).append(f)
+    f_prox = {k: sum(v) / len(v) for k, v in fr_por_nse.items() if v}
+    f_global = (sum(fr_todos) / len(fr_todos)) if fr_todos else None
+    if f_global is None:
+        return None   # sin geometría de corona no hay fricción real → no se modela
+    # ── Celdas NSE×municipio de la corona (XLSX · masa real) ──
+    celdas: Dict[tuple, Dict[str, Any]] = {}
+    for r in corona_rows:
+        muni = r.get("Municipio")
+        if not muni:
+            continue
+        nse = _nse_txt_norm(r.get("XI_Nivel socioeconómico por ingreso")) or ageb_nse(r) or "N/D"
+        hog = _num(r.get("Hogares totales 2026")) or 0.0
+        pob = _num(r.get("Población total 2026"))
+        c = celdas.setdefault((nse, _norm_nombre(muni)), {
+            "nse": nse, "municipio": str(muni), "hogares": 0.0,
+            "poblacion": 0.0, "pob_presente": False, "n_agebs": 0})
+        c["hogares"] += hog
+        c["n_agebs"] += 1
+        if pob is not None:
+            c["poblacion"] += pob
+            c["pob_presente"] = True
+    if not celdas:
+        return None
+    # ── IPF de 1 iteración: conservar EXACTO el total municipal observado ──
+    sal_norm = {_norm_nombre(k): v for k, v in sal_municipal.items() if v and v > 0}
+    total = 0.0
+    por_nse: Dict[str, float] = {}
+    munis_anclados = []
+    for m in sorted(set(mn for (_, mn) in celdas.keys())):
+        if m not in sal_norm:
+            continue
+        grupo = [c for (nse, mn), c in celdas.items() if mn == m]
+        pesos = [c["hogares"] * f_prox.get(c["nse"], f_global) for c in grupo]
+        W = sum(pesos)
+        if W <= 0:
+            continue
+        V = sal_norm[m]
+        for c, w in zip(grupo, pesos):
+            c["commuters_dia"] = V * w / W
+            total += c["commuters_dia"]
+            por_nse[c["nse"]] = por_nse.get(c["nse"], 0.0) + c["commuters_dia"]
+        munis_anclados.append(m)
+    if not munis_anclados:
+        return None
+    return {
+        "celdas": list(celdas.values()),
+        "total_commuters_dia": total,
+        "por_nse": por_nse,
+        "munis_anclados": munis_anclados,
+        "f_prox_por_nse": {k: round(v, 6) for k, v in f_prox.items()},
+    }
 
 
 def _analisis_identidad(analisis_nombre, colonia, municipio, estado) -> Dict[str, Any]:
@@ -6470,6 +6679,35 @@ async def zona_procesar(req: ZonaRequest):
                 f"+ bloque NSE del entorno")
     except Exception as e:
         errors["comparables_banda"] = str(e)[:120]
+    # ZONA-RÍO (regla de Héctor · 8 jul 2026): con ≥3 competidores DIRECTOS de banda, la
+    # zona morada = CASCO CONVEXO de los directos RECORTADO a la isócrona base (clip
+    # Sutherland-Hodgman). La zona la definen los comparables REALES de la banda de
+    # percepción, así NUNCA cruza el río ni bloques de distinta percepción/NSE (los
+    # proyectos de otra banda ya salieron del set directo). Con <3 directos se conserva
+    # el método anterior (integridad: no se inventa polígono con menos de 3 puntos).
+    try:
+        if competidores.get("criterio_directos") and (competidores.get("n_directos") or 0) >= 3:
+            _pts_dir = [[c["lng"], c["lat"]] for c in (competidores.get("directos") or [])
+                        if c.get("lng") is not None and c.get("lat") is not None]
+            # Anillo con el que se evaluó la percepción (si hubo ampliación declarada de
+            # muestra, el anillo efectivo es el mayor; si no, la isócrona primaria).
+            _ring_zona = outer_ring if perception.get("zona_base_ampliada") else base_ring
+            _hull_dir = _convex_hull(_pts_dir)
+            _clip = (_clip_ring_sutherland_hodgman(_ring_zona, _hull_dir)
+                     if (_hull_dir and _ring_zona) else [])
+            _a_clip = _area_ring_km2(_clip) if _clip else None
+            _a_ring = _area_ring_km2(_ring_zona) if _ring_zona else None
+            if _clip and _a_clip and _a_ring:
+                perception["zona_poligono"] = [_clip]
+                perception["metodo"] = "banda_percepcion"
+                # 1 decimal: el casco de directos pegados al pin puede ser <1% del anillo
+                perception["cobertura_pct"] = round(_a_clip / _a_ring * 100, 1)
+                perception["motivo"] = (
+                    f"Zona = casco convexo de los {competidores['n_directos']} competidores "
+                    f"directos de banda ∩ isócrona ({_a_clip} de {_a_ring} km²) · no cruza "
+                    f"bloques de distinta percepción/NSE")
+    except Exception as e:
+        errors["zona_rio"] = str(e)[:120]
     # Nota de zona (sin recortar inventario): describe el set directo
     if perception.get("barrera"):
         if perception.get("metodo") == "barrera_nse":
@@ -6595,6 +6833,113 @@ async def zona_procesar(req: ZonaRequest):
                 if _hg:
                     mercado_captable["masa_di"] = {k: round(v) for k, v in _hg.items()}
                     mercado_captable["masa_di_fuente"] = "DI captable (XLSX) · hogares 2026 por NSE"
+                # ── CAPTABLE-V3 (Héctor · 8 jul 2026): commuters por AGEB/celda con modelo de
+                # probabilidad (gravedad · Ortúzar & Willumsen · docs/DISENO_OD_SINTETICO.md)
+                # balanceado IPF de 1 iteración → totales municipales censales EXACTOS. ──
+                try:
+                    if _sal and _agc:
+                        # Corona del XLSX = filas del DI captable que NO están en el DI de la
+                        # zona natural (exclusión por CVEGEO: join 100% real, sin geometría).
+                        _cvegeo_nat = {str(r_.get("CVEGEO")) for r_ in (agebs or [])
+                                       if r_.get("CVEGEO")}
+                        _corona_rows = [r_ for r_ in _agc
+                                        if str(r_.get("CVEGEO")) not in _cvegeo_nat]
+                        _geo_corona = [g for g in (geo_capt or [])
+                                       if g.get("lat") is not None and g.get("lng") is not None
+                                       and not (outer_ring and _point_in_ring(g["lng"], g["lat"], outer_ring))]
+                        _v3 = _captable_v3_ipf(_corona_rows, _geo_corona, _sal, req.lng, req.lat)
+                    else:
+                        _v3 = None
+                    if _v3:
+                        # commuters y % por ORIGEN del mercado captable (match NSE + municipio
+                        # si el origen lo trae; el KMZ de algunas zonas no publica municipio
+                        # por AGEB → el origen agrega TODOS los municipios de su NSE).
+                        for o in mercado_captable["origenes"]:
+                            _onse = _nse_txt_norm(o.get("nse")) or o.get("nse")
+                            _omun = _norm_nombre(o["municipio"]) if o.get("municipio") else None
+                            _cc = [c for c in _v3["celdas"]
+                                   if c.get("commuters_dia") is not None
+                                   and (_nse_txt_norm(c["nse"]) or c["nse"]) == _onse
+                                   and (_omun is None or _norm_nombre(c["municipio"]) == _omun)]
+                            if _cc:
+                                _cd = sum(c["commuters_dia"] for c in _cc)
+                                o["commuters_dia"] = round(_cd)
+                                _pob = sum(c["poblacion"] for c in _cc if c.get("pob_presente"))
+                                # % SOLO si es interpretable a la escala del origen: el
+                                # marginal municipal completo puede exceder la población
+                                # de la corona (municipio ⊃ corona) → publicar ese % sería
+                                # un dato imposible (>100%). Integridad: N/D.
+                                _pct = (_cd / _pob * 100) if _pob > 0 else None
+                                o["pct_poblacion_commuter"] = (round(_pct, 1)
+                                                               if _pct is not None and _pct <= 100
+                                                               else "N/D")
+                        # PERFIL de los commuters: distribución NSE del modelo anclado +
+                        # edad/ingreso/gasto REALES del XLSX de la corona (si publica las
+                        # columnas; si no → N/D y la columna faltante se declara).
+                        _faltan = []
+                        _tot_c = sum(_v3["por_nse"].values()) or 1.0
+                        _dist_nse = {k: round(v / _tot_c * 100, 1)
+                                     for k, v in sorted(_v3["por_nse"].items(),
+                                                        key=lambda kv: -kv[1])}
+                        _edad = _derive_edad_grupos(_corona_rows)
+                        if _edad is None:
+                            _faltan.extend(["0 a 4 … 75 y Más (bandas de edad)"])
+                        _ing_nse = {}
+                        for r_ in _corona_rows:
+                            _nsec = (_nse_txt_norm(r_.get("XI_Nivel socioeconómico por ingreso"))
+                                     or ageb_nse(r_))
+                            _ixh = _ageb_ixh_mensual(r_)
+                            if _nsec and _ixh:
+                                _hh = _num(r_.get("Hogares totales 2026")) or 1.0
+                                a_ = _ing_nse.setdefault(_nsec, [0.0, 0.0])
+                                a_[0] += _ixh * _hh
+                                a_[1] += _hh
+                        _ing_perfil = None
+                        if _ing_nse:
+                            _acum, _cub = 0.0, 0.0
+                            for k, v in _v3["por_nse"].items():
+                                if k in _ing_nse and _ing_nse[k][1] > 0:
+                                    _acum += (v / _tot_c) * (_ing_nse[k][0] / _ing_nse[k][1])
+                                    _cub += v / _tot_c
+                            _ing_perfil = round(_acum / _cub) if _cub > 0 else None
+                        if _ing_perfil is None:
+                            _faltan.append("IXH (ingreso mensual por hogar)")
+                        _gasto_cols = {
+                            "Retail": "Gasto Retail", "Supermercado": "Gasto Supermercado",
+                            "Servicios": "Gasto Servicios", "Educacion": "Gasto Educación",
+                            "Restaurantes": "Gasto Restaurantes", "Cuidado": "Gasto Cuidado personal",
+                            "Entret": "Gasto Entretenimiento", "Salud": "Gasto Cuidado de la salud",
+                        }
+                        _gasto = {k: round(v) for k, col in _gasto_cols.items()
+                                  for v in [_sum(_corona_rows, col)] if v is not None}
+                        if not _gasto:
+                            _faltan.append("Gasto Retail/Supermercado/… (gasto anual)")
+                        mercado_captable["perfil_captable"] = {
+                            "commuters_total_dia": round(_v3["total_commuters_dia"]),
+                            "distribucion_nse_pct": _dist_nse,
+                            "edad_grupos": _edad if _edad is not None else "N/D",
+                            "ingreso_hogar_mensual": _ing_perfil if _ing_perfil is not None else "N/D",
+                            "gasto_anual": _gasto if _gasto else "N/D",
+                            "alcance": ("Demografía real de la corona captable (DI por AGEB); "
+                                        "distribución por NSE ponderada por los commuters "
+                                        "del modelo anclado al censo."),
+                        }
+                        mercado_captable["columnas_faltantes"] = _faltan
+                        mercado_captable["metodo"] = "gravedad_ipf_v3"
+                        mercado_captable["confianza"] = "anclado_municipal"
+                        mercado_captable["ipf"] = {
+                            "munis_anclados": _v3["munis_anclados"],
+                            "commuters_total_dia": round(_v3["total_commuters_dia"]),
+                            "f_prox_por_nse": _v3["f_prox_por_nse"],
+                        }
+                        mercado_captable["nota"] = (
+                            "Viajes diarios por municipio observados en el Censo 2020 "
+                            "(movilidad cotidiana), desagregados a las celdas NSE×municipio "
+                            "de la corona captable por modelo de probabilidad tipo gravedad "
+                            "(Ortúzar & Willumsen) con balanceo IPF de 1 iteración: los "
+                            "totales municipales observados se conservan exactos.")
+                except Exception as e:
+                    errors["captable_v3"] = str(e)[:120]
         except Exception as e:
             errors["captable_masa"] = str(e)[:120]
         payload["zone_data"]["mercado_captable"] = mercado_captable
