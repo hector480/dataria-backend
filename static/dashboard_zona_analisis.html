@@ -2858,13 +2858,20 @@ function tplDemanda(z) {
           <table style="font-size:12px;">
             <thead><tr><th>Tipo</th><th>Hogares</th><th>%</th></tr></thead>
             <tbody>
-              <tr><td class="td-name" style="color:var(--blue);font-weight:600;">Familiares (total)</td><td style="font-family:'JetBrains Mono',monospace;">${DIM_DATA.hog_comp.familiares_total.toLocaleString()}</td><td style="font-family:'JetBrains Mono',monospace;color:var(--blue);font-weight:600;">${(DIM_DATA.hog_comp.familiares_total/DIM_DATA.totals.mkt_total*100).toFixed(2)}%</td></tr>
-              <tr><td class="td-name" style="padding-left:24px;">Nucleares</td><td style="font-family:'JetBrains Mono',monospace;">${DIM_DATA.hog_comp.nucleares.toLocaleString()}</td><td style="font-family:'JetBrains Mono',monospace;">${(DIM_DATA.hog_comp.nucleares/DIM_DATA.totals.mkt_total*100).toFixed(2)}%</td></tr>
-              <tr><td class="td-name" style="padding-left:24px;">Ampliados</td><td style="font-family:'JetBrains Mono',monospace;">${DIM_DATA.hog_comp.ampliados.toLocaleString()}</td><td style="font-family:'JetBrains Mono',monospace;">${(DIM_DATA.hog_comp.ampliados/DIM_DATA.totals.mkt_total*100).toFixed(2)}%</td></tr>
-              <tr><td class="td-name" style="padding-left:24px;">Compuestos</td><td style="font-family:'JetBrains Mono',monospace;">${DIM_DATA.hog_comp.compuestos.toLocaleString()}</td><td style="font-family:'JetBrains Mono',monospace;">${(DIM_DATA.hog_comp.compuestos/DIM_DATA.totals.mkt_total*100).toFixed(2)}%</td></tr>
-              <tr><td class="td-name" style="color:var(--purple);font-weight:600;">No familiares (total)</td><td style="font-family:'JetBrains Mono',monospace;">${DIM_DATA.hog_comp.no_familiares_total.toLocaleString()}</td><td style="font-family:'JetBrains Mono',monospace;color:var(--purple);font-weight:600;">${(DIM_DATA.hog_comp.no_familiares_total/DIM_DATA.totals.mkt_total*100).toFixed(2)}%</td></tr>
-              <tr><td class="td-name" style="padding-left:24px;">Unipersonal</td><td style="font-family:'JetBrains Mono',monospace;">${DIM_DATA.hog_comp.unipersonal.toLocaleString()}</td><td style="font-family:'JetBrains Mono',monospace;">${(DIM_DATA.hog_comp.unipersonal/DIM_DATA.totals.mkt_total*100).toFixed(2)}%</td></tr>
-              <tr><td class="td-name" style="padding-left:24px;">Corresidentes</td><td style="font-family:'JetBrains Mono',monospace;">${DIM_DATA.hog_comp.corresidentes.toLocaleString()}</td><td style="font-family:'JetBrains Mono',monospace;">${(DIM_DATA.hog_comp.corresidentes/DIM_DATA.totals.mkt_total*100).toFixed(2)}%</td></tr>
+              ${(()=>{ /* Guarda anti-nulos (zona sin demografía · mismo patrón del fix histórico
+                          de Demanda): un campo faltante NO debe tumbar la sección completa */
+                const hc = DIM_DATA.hog_comp || {};
+                const tot = (DIM_DATA.totals && DIM_DATA.totals.mkt_total) || 0;
+                const fila = (etq, v, estilo, pad)=>`<tr><td class="td-name" style="${pad?'padding-left:24px;':''}${estilo||''}">${etq}</td><td style="font-family:'JetBrains Mono',monospace;">${v!=null?v.toLocaleString():'N/D'}</td><td style="font-family:'JetBrains Mono',monospace;${estilo||''}">${(v!=null&&tot)?(v/tot*100).toFixed(2)+'%':'—'}</td></tr>`;
+                return [
+                  fila('Familiares (total)', hc.familiares_total, 'color:var(--blue);font-weight:600;'),
+                  fila('Nucleares', hc.nucleares, '', true),
+                  fila('Ampliados', hc.ampliados, '', true),
+                  fila('Compuestos', hc.compuestos, '', true),
+                  fila('No familiares (total)', hc.no_familiares_total, 'color:var(--purple);font-weight:600;'),
+                  fila('Unipersonal', hc.unipersonal, '', true),
+                  fila('Corresidentes', hc.corresidentes, '', true),
+                ].join(''); })()}
               <tr style="background:var(--navy-4);font-weight:700;"><td>Total</td><td style="font-family:'JetBrains Mono',monospace;">${(DIM_DATA.totals?.mkt_total||0).toLocaleString()}</td><td style="font-family:'JetBrains Mono',monospace;">100.00%</td></tr>
             </tbody>
           </table>

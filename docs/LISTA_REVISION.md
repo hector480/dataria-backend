@@ -1174,3 +1174,19 @@ round-trip xlsx→csv→carga exacto · v2.1 e2e: 4 orígenes TODOS anclados (59
 SIGUIENTE (v2.2): matriz municipio→municipio destino-específica desde MICRODATOS del CA
 (endpoint de preproceso en Render que sí alcanza INEGI + catálogo de nombres del propio
 tabulado); el motor ya la consume sin cambios (modo destinos_censo).
+
+## VERIF-FUENTES. Invariancia del resultado ante la fuente de isócrona — [x] VERIFICADO (8 jul 2026)
+Pregunta de Héctor: ¿el front muestra lo mismo sin importar la fuente? DEMOSTRADO en 3 niveles:
+  N1 · Mismo anillo en formato valhalla/ors/tomtom → GeoJSON normalizado IDÉNTICO byte a byte.
+  N2 · zona_procesar completo con predik vs valhalla (misma geometría, misma oferta) → payload
+       IDÉNTICO (11,390 chars comparados tras excluir SOLO campos volátiles declarados:
+       versión/fecha/llave del análisis y la etiqueta iso_fuente_usada/iso_nota).
+  N3 · Resumen+Demanda+Producto renderizados con ambos payloads → HTML IDÉNTICO; en Zona de
+       Análisis la ÚNICA diferencia es la línea de transparencia "Fuente de isócrona: X".
+  AUDITORÍA: grep confirma que iso_fuente solo interviene en selección/declaración/display —
+  ninguna regla de negocio se bifurca por fuente.
+  MATIZ DECLARADO: con geometrías DISTINTAS (mundo real) los números pueden variar porque la
+  zona física varía — eso lo mide el comparador IoU, no es inconsistencia del pipeline.
+BONUS: la verificación destapó fragilidad preexistente (zona SIN demografía → hog_comp nulo
+tronaba la Tabla 5 de Demanda, misma clase del bug histórico) → blindada con guardas N/D.
+verify_all 8/8 + render 10/10 tras el blindaje.
