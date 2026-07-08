@@ -4935,6 +4935,9 @@ class ZonaRequest(BaseModel):
     # Los demás (lotes, industrial, logistica, oficinas, hotel) quedan declarados
     # pero aún no implementados: el backend responde no_disponible para ellos.
     producto: str = "vivienda_vertical"
+    # ISO-MULTI · fuente de isócronas: predik (default) | valhalla | ors | tomtom.
+    # None → ISO_FUENTE_DEFAULT. La lógica de negocio no cambia con la fuente.
+    iso_fuente: Optional[str] = None
     # Unidades que el proyecto nuevo planea construir (campo del front). Topa el pronóstico de
     # venta a 12/18/24 meses: no se puede vender más de lo que se construye. None → sin tope.
     unidades_proyecto: Optional[int] = None
@@ -4979,6 +4982,55 @@ def _analysis_cache_get(key: Optional[str]) -> Optional[Dict[str, Any]]:
 class SeccionRequest(BaseModel):
     analisis_key: str          # el analisis_id_str que devolvió /api/zona/procesar
     seccion: str               # clave de SECTION_REGISTRY (resumen, mapa, demanda, ...)
+
+
+class IsoCompararRequest(BaseModel):
+    """ISO-MULTI · Comparación A/B de fuentes de isócrona para el MISMO pin/tiempo."""
+    lat: float
+    lng: float
+    minutes: int = 8
+    fuentes: Optional[List[str]] = None   # default: predik + valhalla (+ors/tomtom si hay key)
+
+
+@app.post("/api/zona/isocrona_comparar")
+async def isocrona_comparar(req: IsoCompararRequest):
+    """Mide qué tanto se parecen las fuentes: área km², vértices, ms de respuesta e
+    IoU contra la referencia (Predik si responde; si no, la primera que responda).
+    IoU: 1.0 idénticas · ≥0.75 muy similares · <0.5 difieren de forma relevante."""
+    fuentes = req.fuentes or (["predik", "valhalla"]
+                              + (["ors"] if ORS_KEY else [])
+                              + (["tomtom"] if TOMTOM_KEY else []))
+    out: Dict[str, Any] = {}
+    async with httpx.AsyncClient(timeout=60) as client:
+        for f in fuentes:
+            fn = ISO_PROVIDERS.get(f)
+            if not fn:
+                out[f] = {"ok": False, "error": "fuente desconocida"}
+                continue
+            t0 = _time.time()
+            try:
+                geo = await fn(client, req.lat, req.lng, req.minutes)
+                ring = geo["coordinates"][0]
+                out[f] = {"ok": True, "ms": int((_time.time() - t0) * 1000),
+                          "n_vertices": len(ring), "area_km2": _area_ring_km2(ring),
+                          "poligono": geo}
+            except Exception as e:
+                out[f] = {"ok": False, "ms": int((_time.time() - t0) * 1000),
+                          "error": str(e)[:140]}
+    ref = "predik" if out.get("predik", {}).get("ok") else \
+        next((f for f in fuentes if out.get(f, {}).get("ok")), None)
+    if ref:
+        ring_ref = out[ref]["poligono"]["coordinates"][0]
+        for f, d in out.items():
+            if d.get("ok") and f != ref:
+                d["iou_vs_referencia"] = _iou_rings(ring_ref, d["poligono"]["coordinates"][0])
+                a_ref = out[ref].get("area_km2") or 0
+                if a_ref and d.get("area_km2") is not None:
+                    d["area_vs_referencia_pct"] = round(d["area_km2"] / a_ref * 100, 1)
+    return {"ok": True, "minutes": req.minutes, "referencia": ref, "fuentes": out,
+            "nota": ("IoU 1.0 = idénticas · ≥0.75 muy similares · <0.5 difieren de forma "
+                     "relevante. La regla de negocio no cambia con la fuente; solo el "
+                     "polígono de alcance físico.")}
 
 
 class EstrellaFiltroRequest(BaseModel):
@@ -5091,6 +5143,163 @@ async def fetch_isochrone(client: httpx.AsyncClient, lat: float, lng: float, min
     if geo.get("type") != "Polygon" or "coordinates" not in geo:
         raise HTTPException(502, f"Isócrona inválida para {minutes} min")
     return geo
+
+
+# ════════════ ISO-MULTI · Isócronas multi-proveedor (Predik intacto + gratuitas) ════════════
+# Petición de Héctor (Predik devolviendo 403): mantener la MISMA lógica de negocio y poder
+# COMPARAR fuentes. Todos los adapters normalizan al MISMO contrato que Predik:
+# {"type":"Polygon","coordinates":[[[lng,lat],...]]} — el resto del pipeline no cambia.
+#   • predik   → el actual (default; la regla de negocio no se toca).
+#   • valhalla → motor OSM en servidor público FOSSGIS (GRATUITO, SIN api key).
+#   • ors      → OpenRouteService (gratuito con key · env DATARIA_ORS_KEY).
+#   • tomtom   → Reachable Range (gratuito con key · env DATARIA_TOMTOM_KEY).
+# Fallback automático: si Predik falla y DATARIA_ISO_FALLBACK está definido (default
+# valhalla), la isócrona sale del fallback y el payload lo DECLARA (transparencia).
+ISO_FUENTE_DEFAULT = os.environ.get("DATARIA_ISO_FUENTE", "predik")
+ISO_FALLBACK = os.environ.get("DATARIA_ISO_FALLBACK", "valhalla")
+VALHALLA_BASE = os.environ.get("DATARIA_VALHALLA", "https://valhalla1.openstreetmap.de")
+ORS_BASE = os.environ.get("DATARIA_ORS", "https://api.openrouteservice.org")
+ORS_KEY = os.environ.get("DATARIA_ORS_KEY", "")
+TOMTOM_KEY = os.environ.get("DATARIA_TOMTOM_KEY", "")
+
+
+def _ring_mayor_de_geom(geom: Dict) -> List[List[float]]:
+    """Extrae el anillo exterior MAYOR de una geometría Polygon/MultiPolygon GeoJSON."""
+    if not geom:
+        return []
+    t = geom.get("type")
+    if t == "Polygon":
+        anillos = [geom.get("coordinates", [[]])[0]]
+    elif t == "MultiPolygon":
+        anillos = [p[0] for p in geom.get("coordinates", []) if p]
+    else:
+        return []
+    anillos = [a for a in anillos if a and len(a) >= 4]
+    return max(anillos, key=len) if anillos else []
+
+
+def _poly_norm(ring: List[List[float]]) -> Dict:
+    """Normaliza al contrato Predik. Anillo corto → error (integridad, no inventar)."""
+    if not ring or len(ring) < 4:
+        raise ValueError("isócrona sin polígono utilizable")
+    if ring[0] != ring[-1]:
+        ring = ring + [ring[0]]
+    return {"type": "Polygon", "coordinates": [[[float(x), float(y)] for x, y in ring]]}
+
+
+def _parse_valhalla_iso(j: Dict, minutes: int) -> Dict:
+    feats = (j or {}).get("features") or []
+    cand = [f for f in feats
+            if (f.get("properties") or {}).get("contour") in (minutes, float(minutes))] or feats
+    if not cand:
+        raise ValueError("Valhalla sin features")
+    return _poly_norm(_ring_mayor_de_geom(cand[0].get("geometry") or {}))
+
+
+def _parse_ors_iso(j: Dict) -> Dict:
+    feats = (j or {}).get("features") or []
+    if not feats:
+        raise ValueError("ORS sin features")
+    return _poly_norm(_ring_mayor_de_geom(feats[0].get("geometry") or {}))
+
+
+def _parse_tomtom_iso(j: Dict) -> Dict:
+    b = ((j or {}).get("reachableRange") or {}).get("boundary") or []
+    ring = [[p.get("longitude"), p.get("latitude")] for p in b
+            if p.get("longitude") is not None]
+    return _poly_norm(ring)
+
+
+async def fetch_isochrone_valhalla(client: httpx.AsyncClient, lat: float, lng: float, minutes: int) -> Dict:
+    import json as _json
+    q = _json.dumps({"locations": [{"lat": lat, "lon": lng}], "costing": "auto",
+                     "contours": [{"time": minutes}], "polygons": True, "denoise": 0.3})
+    r = await client.get(f"{VALHALLA_BASE}/isochrone", params={"json": q},
+                         headers={"User-Agent": "Dataria/2.0 (contacto@prosperia.mx)"})
+    r.raise_for_status()
+    return _parse_valhalla_iso(r.json(), minutes)
+
+
+async def fetch_isochrone_ors(client: httpx.AsyncClient, lat: float, lng: float, minutes: int) -> Dict:
+    if not ORS_KEY:
+        raise RuntimeError("ORS sin api key (env DATARIA_ORS_KEY)")
+    r = await client.post(f"{ORS_BASE}/v2/isochrones/driving-car",
+                          headers={"Authorization": ORS_KEY},
+                          json={"locations": [[lng, lat]], "range": [minutes * 60],
+                                "range_type": "time"})
+    r.raise_for_status()
+    return _parse_ors_iso(r.json())
+
+
+async def fetch_isochrone_tomtom(client: httpx.AsyncClient, lat: float, lng: float, minutes: int) -> Dict:
+    if not TOMTOM_KEY:
+        raise RuntimeError("TomTom sin api key (env DATARIA_TOMTOM_KEY)")
+    r = await client.get(
+        f"https://api.tomtom.com/routing/1/calculateReachableRange/{lat},{lng}/json",
+        params={"timeBudgetInSec": minutes * 60, "key": TOMTOM_KEY, "travelMode": "car"})
+    r.raise_for_status()
+    return _parse_tomtom_iso(r.json())
+
+
+ISO_PROVIDERS = {
+    "predik": fetch_isochrone,
+    "valhalla": fetch_isochrone_valhalla,
+    "ors": fetch_isochrone_ors,
+    "tomtom": fetch_isochrone_tomtom,
+}
+
+
+async def fetch_isochrone_fuente(client: httpx.AsyncClient, lat: float, lng: float,
+                                 minutes: int, fuente: Optional[str] = None):
+    """(geojson, fuente_usada, nota). Predik es el default (regla intacta); si Predik
+    falla y hay fallback configurado, la isócrona sale del fallback y se DECLARA."""
+    f = (fuente or ISO_FUENTE_DEFAULT or "predik").lower()
+    fn = ISO_PROVIDERS.get(f) or fetch_isochrone
+    try:
+        return await fn(client, lat, lng, minutes), f, None
+    except Exception as e:
+        fb = (ISO_FALLBACK or "").lower()
+        if f == "predik" and fb and fb != "predik" and fb in ISO_PROVIDERS:
+            geo = await ISO_PROVIDERS[fb](client, lat, lng, minutes)
+            return geo, fb, f"Predik no respondió ({str(e)[:70]}) · isócrona generada por {fb}"
+        raise
+
+
+def _area_ring_km2(ring: List[List[float]]) -> Optional[float]:
+    """Área del anillo (km²) por shoelace equirectangular (dato geométrico)."""
+    if not ring or len(ring) < 4:
+        return None
+    lat0 = math.radians(sum(p[1] for p in ring) / len(ring))
+    km = [((p[0] - ring[0][0]) * 111.32 * math.cos(lat0),
+           (p[1] - ring[0][1]) * 111.32) for p in ring]
+    s = 0.0
+    for i in range(len(km) - 1):
+        s += km[i][0] * km[i + 1][1] - km[i + 1][0] * km[i][1]
+    return round(abs(s) / 2.0, 2)
+
+
+def _iou_rings(a: List[List[float]], b: List[List[float]], n: int = 46) -> Optional[float]:
+    """Intersección/Unión (IoU) de dos anillos por muestreo de rejilla (sin dependencias).
+    1.0 = idénticas · ≥0.75 muy similares · <0.5 difieren de forma relevante."""
+    if not a or not b or len(a) < 4 or len(b) < 4:
+        return None
+    xs = [p[0] for p in a] + [p[0] for p in b]
+    ys = [p[1] for p in a] + [p[1] for p in b]
+    x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
+    if x1 <= x0 or y1 <= y0:
+        return None
+    inter = uni = 0
+    for i in range(n):
+        for j in range(n):
+            x = x0 + (x1 - x0) * (i + 0.5) / n
+            y = y0 + (y1 - y0) * (j + 0.5) / n
+            ia = _point_in_ring(x, y, a)
+            ib = _point_in_ring(x, y, b)
+            if ia and ib:
+                inter += 1
+            if ia or ib:
+                uni += 1
+    return round(inter / uni, 3) if uni else None
 
 
 async def fetch_vvv(client: httpx.AsyncClient, ring: List[List[float]], tipo: str = "vv_venta") -> Dict:
@@ -5292,13 +5501,17 @@ async def analyze(req: ZonaRequest):
     profile = isochrone_profile(req.predio_m2, req.uso_comercial)
 
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-        # 1 · Isócronas (todas las del perfil)
+        # 1 · Isócronas (todas las del perfil) · ISO-MULTI con fuente/fallback declarados
         isocronas: Dict[int, Dict] = {}
+        iso_fuente_usada, iso_nota = None, None
         try:
             for m in profile["minutos"]:
-                isocronas[m] = await fetch_isochrone(client, req.lat, req.lng, m)
-        except httpx.HTTPError as e:
-            raise HTTPException(502, f"Predik no disponible: {e}")
+                geo, iso_fuente_usada, nota = await fetch_isochrone_fuente(
+                    client, req.lat, req.lng, m, iso_fuente_usada or req.iso_fuente)
+                iso_nota = iso_nota or nota
+                isocronas[m] = geo
+        except Exception as e:
+            raise HTTPException(502, f"Isócronas no disponibles (todas las fuentes): {e}")
 
         # Anillo base (azul · 8 min) = zona PRIMARIA. Anillo mayor (verde · principal)
         # = zona SECUNDARIA. La oferta y la demanda se traen del anillo MAYOR (azul+verde
@@ -5366,13 +5579,19 @@ async def zona_poligono(req: ZonaRequest):
     profile = isochrone_profile(req.predio_m2, req.uso_comercial)
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
         isocronas: Dict[int, Dict] = {}
+        iso_fuente_usada, iso_nota = None, None
         try:
             for m in profile["minutos"]:
-                isocronas[m] = await fetch_isochrone(client, req.lat, req.lng, m)
-        except httpx.HTTPError as e:
-            raise HTTPException(502, f"Predik no disponible: {e}")
+                geo, iso_fuente_usada, nota = await fetch_isochrone_fuente(
+                    client, req.lat, req.lng, m, iso_fuente_usada or req.iso_fuente)
+                iso_nota = iso_nota or nota
+                isocronas[m] = geo
+        except Exception as e:
+            raise HTTPException(502, f"Isócronas no disponibles (todas las fuentes): {e}")
     return {
         "ok": True,
+        "iso_fuente": iso_fuente_usada,
+        "iso_nota": iso_nota,
         "stage": "poligono",
         "perfil_iso": profile["key"],
         "perfil_label": profile["label"],
@@ -5416,21 +5635,26 @@ async def zona_procesar(req: ZonaRequest):
     profile = isochrone_profile(req.predio_m2, req.uso_comercial)
     errors = {}
 
+    iso_fuente_usada, iso_nota = None, None
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-        # Isócrona base (8 min o principal) — necesaria para acotar VVV/DI
+        # Isócrona base (8 min o principal) — necesaria para acotar VVV/DI · ISO-MULTI
         try:
             base_min = 8 if 8 in profile["minutos"] else profile["principal"]
-            base_iso = await fetch_isochrone(client, req.lat, req.lng, base_min)
+            base_iso, iso_fuente_usada, iso_nota = await fetch_isochrone_fuente(
+                client, req.lat, req.lng, base_min, req.iso_fuente)
             isocronas = {base_min: base_iso}
-            # Las demás isócronas del perfil (para pintar anillos), tolerante a fallo
+            # Las demás isócronas del perfil (para pintar anillos), tolerante a fallo;
+            # misma fuente que la base (consistencia entre anillos).
             for m in profile["minutos"]:
                 if m not in isocronas:
                     try:
-                        isocronas[m] = await fetch_isochrone(client, req.lat, req.lng, m)
+                        geo, _, _ = await fetch_isochrone_fuente(
+                            client, req.lat, req.lng, m, iso_fuente_usada)
+                        isocronas[m] = geo
                     except Exception:
                         pass
-        except httpx.HTTPError as e:
-            raise HTTPException(502, f"Predik no disponible: {e}")
+        except Exception as e:
+            raise HTTPException(502, f"Isócronas no disponibles (todas las fuentes): {e}")
         base_ring = isocronas[base_min]["coordinates"][0]
         # Anillo MAYOR (verde · zona secundaria). Oferta y demanda se traen de azul+verde
         # combinadas; luego se clasifica cada proyecto en su set (directo/primario/secundario).
@@ -5582,6 +5806,14 @@ async def zona_procesar(req: ZonaRequest):
     payload["stage"] = "procesar"
     payload["producto"] = modo
     payload["producto_label"] = modo_cfg["label"]
+    # ISO-MULTI · declarar SIEMPRE con qué fuente se construyó la zona (transparencia)
+    try:
+        payload["zone_data"]["iso_fuente_usada"] = iso_fuente_usada
+        payload["zone_data"]["iso_nota"] = iso_nota
+        if iso_nota:
+            errors["iso_fallback"] = iso_nota
+    except Exception:
+        pass
     payload["errors"] = errors
     # ARQ-MODULAR · dejar el análisis en caché para servir secciones independientes
     # (/api/zona/seccion) y devolver la llave al front (= identidad ZA-8).

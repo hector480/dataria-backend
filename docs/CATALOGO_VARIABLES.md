@@ -168,3 +168,13 @@ hotel (prefijo por uso).
 | `TASA_HIPOTECARIA_REF = 0.091` | 9.1% CONFIRMADA por Héctor · full backend, jamás ajustable en front |
 | `POST /api/zona/ficha_inventario` | INV-3 · PDF carta para bancos (portada banco/desarrollador, resumen robusto, sección por proyecto, hoja por producto; plusvalías "próximamente" hasta P3). reportlab==4.5.1 agregado a requirements.txt |
 | Marcadores "próximamente" | Ficha de proyecto: desarrollador, descripción, mercado meta, cercanías, inicio venta, entrega/acabados, amenidades y plusvalías por periodo — el dato existe en la base; la ruta del API está en tickets P1/P3 |
+
+## 8e. ISO-MULTI · Variables nuevas (aditivas)
+| Variable | Qué es |
+|---|---|
+| `ZonaRequest.iso_fuente` | predik (default) · valhalla · ors · tomtom — la lógica de negocio NO cambia con la fuente |
+| `zone_data.iso_fuente_usada` / `iso_nota` | Con qué fuente se construyó la zona; nota cuando hubo fallback (transparencia) |
+| Respuesta de `/api/zona/poligono` | + `iso_fuente`, `iso_nota` |
+| `POST /api/zona/isocrona_comparar` | A/B de fuentes: área km², vértices, ms, IoU vs referencia (Predik si responde) y % de área vs referencia |
+| Constantes env | `DATARIA_ISO_FUENTE` (default predik) · `DATARIA_ISO_FALLBACK` (default valhalla) · `DATARIA_VALHALLA` · `DATARIA_ORS_KEY` · `DATARIA_TOMTOM_KEY` |
+| Helpers | `fetch_isochrone_fuente` (fuente+fallback declarados) · parsers que normalizan al contrato Predik · `_area_ring_km2` · `_iou_rings` |

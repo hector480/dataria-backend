@@ -1067,3 +1067,22 @@ VALIDADO: py_compile · node --check · unitarias (tasa, PROD-PERFIL 2 casos, PD
 harness (Demanda con status/insatisfecha/✓núcleo, Producto card, Inventario botón,
 retrocompatible) · verify_all 8/8 + render 10/10 EN VIVO. Gates del API sin cambio
 (dump/interactive/GDL/ancla ZMM-DEM1: reintentos en curso, se anotan al caer).
+
+## ISO-MULTI. Isócronas multi-proveedor + comparador A/B (Predik con 403) — [x] HECHO (8 jul 2026)
+DIAGNÓSTICO: Predik vía PRSP NO está caído: responde 403 Forbidden en 0.57s → problema de
+credencial/permiso del wrapper hacia Predik (dato para el ticket de Héctor).
+DISEÑO (petición de Héctor): Predik INTACTO como default; adapters que normalizan al MISMO
+contrato GeoJSON → ninguna regla de negocio cambia con la fuente.
+  • Proveedores: predik · valhalla (FOSSGIS/OSM, GRATUITO SIN KEY · mejor gratuito, mejor
+    que TomTom en calidad de isócrona) · ors (key) · tomtom (key).
+  • fetch_isochrone_fuente: fuente por request o env; FALLBACK AUTOMÁTICO predik→valhalla
+    SIEMPRE DECLARADO (zone_data.iso_fuente_usada + iso_nota + errors.iso_fallback) → con
+    Predik en 403 la herramienta sigue operando y lo dice.
+  • POST /api/zona/isocrona_comparar: ok/ms/vértices/área/polígono por fuente + IoU vs
+    referencia (rejilla 46×46) + % de área vs referencia.
+  • FRONT: selector de fuente en el formulario · línea "Fuente de isócrona" en resultados
+    (nota ámbar si hubo fallback) · botón "⚖ Comparar fuentes" (overlay punteado + tabla).
+VALIDADO: py_compile · node --check · unitarias (parsers 3 proveedores; IoU 1.0/0.0; área;
+fallback declarado; comparador e2e simulado IoU 0.629/área 155.4%) · front ✓. ENTORNO: el
+sandbox bloquea valhalla/ors/tomtom y Predik está en 403 → los checks EN VIVO no corren
+aquí hoy; en Render (egreso abierto) Valhalla opera. Validar en Safari tras push.
