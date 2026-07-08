@@ -6450,6 +6450,21 @@ async def zona_procesar(req: ZonaRequest):
             competidores["n_directos"] = len(competidores["directos"])
             competidores["n_primarios"] = len(competidores["primarios"])
             competidores["n_secundarios"] = len(competidores["secundarios"])
+            # SECUNDARIOS divididos por VALOR PERCIBIDO (Héctor · 8 jul): superior = contra
+            # quién NO podemos compararnos por ser mejor; inferior = producto de percepción
+            # inferior que no debe distraer. Corte por banda; dentro de banda → vs mediana.
+            for c in competidores["secundarios"]:
+                pm2 = c.get("pm2")
+                if pm2 is None:
+                    c["rango_percepcion"] = "N/D"
+                elif pm2 > _ls or (pm2 >= _med and _li <= pm2 <= _ls):
+                    c["rango_percepcion"] = "superior"
+                else:
+                    c["rango_percepcion"] = "inferior"
+            competidores["n_sec_superior"] = sum(
+                1 for c in competidores["secundarios"] if c.get("rango_percepcion") == "superior")
+            competidores["n_sec_inferior"] = sum(
+                1 for c in competidores["secundarios"] if c.get("rango_percepcion") == "inferior")
             competidores["criterio_directos"] = (
                 f"isócrona primaria + banda de percepción ${round(_li):,}–${round(_ls):,}/m² "
                 f"+ bloque NSE del entorno")

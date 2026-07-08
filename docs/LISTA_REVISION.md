@@ -1306,3 +1306,11 @@ verify_all 8/8 + render 10/10 tras el blindaje.
   edición de la línea de fuente — detectado por el propio workflow) · regresión N3 OK ·
   verify_reglas 14/14 OK. Pendiente post-push: re-validar el pin reportado y las anclas en
   producción. Revisada dos veces.
+
+## 2026-07-08 · SEC-RANGOS: secundarios divididos por valor percibido (instrucción de Héctor)
+- Backend: `rango_percepcion` (superior/inferior por banda; dentro de banda → vs mediana) +
+  `n_sec_superior`/`n_sec_inferior`. Front: dos filas nuevas en la tabla de competidores
+  (SUPERIOR = no comparables por mejor percepción · INFERIOR = no deben distraer).
+- Pendiente confirmado con Héctor tras push: puntos azules de primarios en el mapa (el código
+  los pinta si traen lat/lng; verificar payload del pin en producción) y revisión conjunta de
+  los 5 directos de banda. py_compile/node/verify_reglas OK.

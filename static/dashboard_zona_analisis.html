@@ -6851,6 +6851,8 @@ function zaRenderResults(perfil, proyectos, ajuste){
       <div class="za-kv">
         ${fila('directos','#8B5CF6','Directos (morado)', c.n_directos, c.directos)}
         ${fila('primarios','#0540F2','Primarios (azul · 8 min)', c.n_primarios, c.primarios)}
+        ${fila('sec-sup','#0E7C5B','Secundarios · rango SUPERIOR de valor percibido (no comparables: mejor percepción)', c.n_sec_superior||0, (c.secundarios||[]).filter(x=>x.rango_percepcion==='superior'))}
+        ${fila('sec-inf','#7BC9A9','Secundarios · rango INFERIOR de valor percibido (no distraen: menor percepción)', c.n_sec_inferior||0, (c.secundarios||[]).filter(x=>x.rango_percepcion==='inferior'))}
         ${fila('secundarios','#00B564','Secundarios (verde)', c.n_secundarios, c.secundarios)}
       </div>
       <div id="za-set-directos" class="za-valor-list" style="display:none;margin-top:8px;border-left:2px solid #8B5CF6;padding-left:8px;">${lista(c.directos)}</div>
