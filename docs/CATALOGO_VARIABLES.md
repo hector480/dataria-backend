@@ -178,3 +178,15 @@ hotel (prefijo por uso).
 | `POST /api/zona/isocrona_comparar` | A/B de fuentes: área km², vértices, ms, IoU vs referencia (Predik si responde) y % de área vs referencia |
 | Constantes env | `DATARIA_ISO_FUENTE` (default predik) · `DATARIA_ISO_FALLBACK` (default valhalla) · `DATARIA_VALHALLA` · `DATARIA_ORS_KEY` · `DATARIA_TOMTOM_KEY` |
 | Helpers | `fetch_isochrone_fuente` (fuente+fallback declarados) · parsers que normalizan al contrato Predik · `_area_ring_km2` · `_iou_rings` |
+
+## 8f. CAPTABLE v1/v2 + ISO-MULTI front + OD (aditivas)
+| Variable | Qué es |
+|---|---|
+| `ZonaRequest.incluir_captable / captable_min` | Opt-in del mercado captable (anillo principal+10, tope 30 min) |
+| `zone_data.mercado_captable{activo, metodo, exponente, anillo_min, fuente_isocrona, n_agebs_corona, masa_fuente, origenes[], extranjero, poligono_captable, nota, ancla_censal}` | Orígenes del captable. `metodo`: huff_gravity_v1 (modelo) u od_sintetico_inegi_v1 (anclado a censo) |
+| `origenes[i]{nse, municipio, n_agebs, hogares_est, dist_km_mediana, share_pct, fuente_share, viajes_censales_muni}` | `fuente_share`: censo_2020 (observado) o modelo_huff (declarado) |
+| `extranjero{presente, poblacion_extranjera, share_pct, zona_turistica, umbral_pct, nota}` | Se enciende solo al aparecer columnas (P1); umbral turístico 3% configurable |
+| `ancla_censal{ok, fuente, muni_destino, viajes_totales_censo, cobertura_corona_pct, confianza, motivos_disponibles}` | Trazabilidad del anclaje censal |
+| `GET /api/od/status?estado&muni` | Diagnóstico de la cadena del ancla (local/autofetch/errores + marginales top) |
+| Constantes env | `DATARIA_HUFF_EXP=2 · DATARIA_CAPTABLE_MIN_TOPE=30 · DATARIA_UMBRAL_EXTRANJERO=0.03 · DATARIA_OD_URL_TPL · DATARIA_OD_AUTOFETCH=1 · DATARIA_OD_DIR · DATARIA_OD_COBERTURA_MIN=0.6` |
+| `datos/od_censo/<estado>.csv` | Ancla censal canónica versionada (ORIGEN, DESTINO, MOTIVO, VIAJES) |

@@ -1118,3 +1118,29 @@ NSE nativo de la base, capas por motivo (trabajo/estudio observados · compras H
 turismo DATATUR+P1), balanceo IPF para cuadrar exacto con lo observado, MISMO contrato
 mercado_captable (v2→v1 Huff→None con confianza declarada). Preguntas Q1-Q3 (movilidad en
 la base propia, token DENUE, zonas turísticas a calibrar).
+
+## OD-V2. Motor OD-sintético IMPLEMENTADO (sin depender del equipo) — [x] HECHO (8 jul 2026)
+Todo lo construible sin el equipo quedó construido:
+  • _norm_nombre (matching por nombre normalizado, sin catálogos inventados) ·
+    _od_parse_canonico (CSV canónico, separador/columnas por regex, coma o punto y coma) ·
+    _od_cargar_estado (cadena: datos/od_censo/<estado>.csv versionado → autofetch
+    DATARIA_OD_URL_TPL con parser zip/xlsx/csv → error declarado; caché en memoria) ·
+    _od_marginales_hacia (flujos entrantes al muni del pin, excluye intra-municipio).
+  • derive_mercado_captable_v2: share municipal = OBSERVADO censal (trabajo+estudio),
+    desagregado por Huff DENTRO de cada municipio; municipios sin flujo censal → residual
+    modelo DECLARADO (fuente_share por origen); renormalización a 100; cobertura censal y
+    confianza (anclado_censo ≥60% / parcialmente_anclado); sin ancla o sin muni → v1 Huff
+    declarado. Conectado a zona_procesar (captable opt-in usa v2 automáticamente).
+  • GET /api/od/status: diagnóstico remoto de la cadena (verificar URL/archivo desde
+    Safari SIN equipo). datos/od_censo/README.md con el formato canónico.
+VALIDADO (unitarias): parser+marginales; carga local con acentos; v2 anclado (SPG 51.6% >
+GPE 43.0% = proporción censal 12k/10k; García 5.4% modelo; Σ=100; cobertura reportada);
+sin ancla → v1; endpoint con marginales top y error declarado. py_compile ✓.
+FALTA UNA SOLA PIEZA (no de código): el ARCHIVO real del ancla por estado. 3 vías:
+  (a) columnas de movilidad publicadas en la base propia (Q1 · ideal),
+  (b) tabulado censal INEGI de movilidad colocado en datos/od_censo/ (descarga manual o
+      URL en DATARIA_OD_URL_TPL — verificable al instante con /api/od/status),
+  (c) navegación asistida: con el navegador Chrome conectado puedo ubicar/descargar el
+      tabulado yo mismo (el sandbox bloquea INEGI; el navegador del usuario no).
+PENDIENTES OPCIONALES: DENUE (destinos en competencia) y DATATUR (turismo) — mejoran, no
+bloquean. DI-probe de columnas de la base sigue colgada por el API (se anotará al caer).

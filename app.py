@@ -13,6 +13,7 @@ import re
 import os
 import time as _time
 import datetime as _dt
+from pathlib import Path
 from typing import Optional, List, Dict, Any
 
 # Banda de plausibilidad física (m²)
@@ -4260,6 +4261,203 @@ def derive_mercado_captable(agebs_geo_capt: List[Dict], natural_ring: List[List[
     return out
 
 
+# ════════════ OD-SINTÉTICO v2 · Ancla censal INEGI (diseño DISENO_OD_SINTETICO.md) ════════════
+# Independiente de Predik y de cualquier servicio vivo: el ancla (flujos municipio→municipio
+# de TRABAJO/ESTUDIO del Censo 2020) se carga por CADENA DE FUENTES con degradación declarada:
+#   1) datos/od_censo/<estado>.csv versionado en el repo (formato canónico) — inmune a caídas.
+#   2) Autofetch remoto (env DATARIA_OD_URL_TPL) al primer uso — Render tiene egreso abierto;
+#      el sandbox de desarrollo no, por eso existe /api/od/status para verificar desde Safari.
+#   3) Sin ancla → v1 Huff (modelo declarado). NUNCA se inventa flujo.
+# Emparejamiento por NOMBRE normalizado de municipio (sin catálogos externos que inventar).
+OD_URL_TPL = os.environ.get("DATARIA_OD_URL_TPL", "")   # se define tras verificar la URL INEGI
+OD_AUTOFETCH = os.environ.get("DATARIA_OD_AUTOFETCH", "1") == "1"
+OD_DIR_LOCAL = Path(os.environ.get("DATARIA_OD_DIR", str(Path(__file__).resolve().parent / "datos" / "od_censo")))
+OD_CACHE: Dict[str, Dict[str, Any]] = {}
+OD_COBERTURA_MIN = float(os.environ.get("DATARIA_OD_COBERTURA_MIN", "0.6"))
+
+
+def _norm_nombre(s) -> str:
+    """Normaliza nombres (municipio/estado) para emparejar: mayúsculas, sin acentos."""
+    if not s:
+        return ""
+    t = str(s).strip().upper()
+    for a, b in (("Á", "A"), ("É", "E"), ("Í", "I"), ("Ó", "O"), ("Ú", "U"), ("Ü", "U"), ("Ñ", "N")):
+        t = t.replace(a, b)
+    return re.sub(r"\s+", " ", t)
+
+
+def _od_parse_canonico(texto_csv: str) -> Dict[str, Dict[tuple, float]]:
+    """Parsea el formato CANÓNICO del ancla: columnas con origen, destino, motivo, viajes
+    (detección de encabezados por regex; tolerante a orden). → {motivo: {(orig,dest): v}}"""
+    lineas = [l for l in texto_csv.splitlines() if l.strip()]
+    if len(lineas) < 2:
+        raise ValueError("ancla OD vacía")
+    sep = "," if lineas[0].count(",") >= lineas[0].count(";") else ";"
+    head = [_norm_nombre(h) for h in lineas[0].split(sep)]
+    def _col(rx):
+        for i, h in enumerate(head):
+            if re.search(rx, h):
+                return i
+        return None
+    io_, id_ = _col(r"ORIGEN|RESIDEN"), _col(r"DESTINO|TRABAJ|ESTUDI|LUGAR")
+    im, iv = _col(r"MOTIVO"), _col(r"VIAJES|POBLACION|PERSONAS|VALOR|TOTAL")
+    if io_ is None or id_ is None or iv is None:
+        raise ValueError(f"ancla OD sin columnas reconocibles: {head[:6]}")
+    out: Dict[str, Dict[tuple, float]] = {"trabajo": {}, "estudio": {}}
+    for l in lineas[1:]:
+        p = l.split(sep)
+        if len(p) <= max(io_, id_, iv):
+            continue
+        try:
+            v = float(str(p[iv]).replace(",", "").strip() or 0)
+        except ValueError:
+            continue
+        if v <= 0:
+            continue
+        mot = _norm_nombre(p[im]) if (im is not None and len(p) > im) else "TRABAJO"
+        key = "estudio" if "ESTUDI" in mot else "trabajo"
+        o, d = _norm_nombre(p[io_]), _norm_nombre(p[id_])
+        if o and d:
+            out[key][(o, d)] = out[key].get((o, d), 0.0) + v
+    if not out["trabajo"] and not out["estudio"]:
+        raise ValueError("ancla OD sin flujos > 0")
+    return out
+
+
+async def _od_cargar_estado(estado_nombre: str) -> Dict[str, Any]:
+    """Carga el ancla OD del estado por la cadena de fuentes. Cachea en memoria."""
+    ent = _norm_nombre(estado_nombre)
+    if not ent:
+        return {"ok": False, "error": "estado no determinado"}
+    if ent in OD_CACHE:
+        return OD_CACHE[ent]
+    res: Dict[str, Any] = {"ok": False, "estado": ent, "fuente": None, "error": None}
+    # 1 · archivo local versionado
+    try:
+        slug = re.sub(r"[^A-Z0-9]+", "_", ent).strip("_").lower()
+        f = OD_DIR_LOCAL / f"{slug}.csv"
+        if f.is_file():
+            res.update(ok=True, fuente=f"local:{f.name}",
+                       flujos=_od_parse_canonico(f.read_text(encoding="utf-8")))
+            OD_CACHE[ent] = res
+            return res
+    except Exception as e:
+        res["error"] = f"local: {str(e)[:80]}"
+    # 2 · autofetch remoto (URL plantilla verificable vía /api/od/status)
+    if OD_AUTOFETCH and OD_URL_TPL:
+        try:
+            url = OD_URL_TPL.format(estado=ent.replace(" ", "%20"))
+            async with httpx.AsyncClient(timeout=90) as client:
+                r = await client.get(url, headers={"User-Agent": "Dataria/2.0"})
+                r.raise_for_status()
+                contenido = r.content
+            if contenido[:2] == b"PK":   # zip o xlsx
+                zf = zipfile.ZipFile(io.BytesIO(contenido))
+                csvs = [n for n in zf.namelist() if n.lower().endswith(".csv")]
+                if csvs:
+                    texto = zf.read(csvs[0]).decode("utf-8", errors="ignore")
+                else:   # xlsx → volcar a canónico
+                    wb = openpyxl.load_workbook(io.BytesIO(contenido), data_only=True, read_only=True)
+                    ws = wb.active
+                    texto = "\n".join(",".join("" if c is None else str(c) for c in row)
+                                      for row in ws.iter_rows(values_only=True))
+            else:
+                texto = contenido.decode("utf-8", errors="ignore")
+            res.update(ok=True, fuente=f"autofetch:{url[:80]}",
+                       flujos=_od_parse_canonico(texto))
+            OD_CACHE[ent] = res
+            return res
+        except Exception as e:
+            res["error"] = (res.get("error") or "") + f" · autofetch: {str(e)[:90]}"
+    if not OD_URL_TPL:
+        res["error"] = (res.get("error") or "") + " · DATARIA_OD_URL_TPL sin configurar"
+    OD_CACHE[ent] = res
+    return res
+
+
+def _od_marginales_hacia(flujos: Dict[str, Dict[tuple, float]], muni_destino: str) -> Dict[str, Dict[str, float]]:
+    """{motivo: {muni_origen: viajes}} de los flujos que ENTRAN al municipio del pin."""
+    d = _norm_nombre(muni_destino)
+    out: Dict[str, Dict[str, float]] = {}
+    for motivo, m in (flujos or {}).items():
+        ac: Dict[str, float] = {}
+        for (o, dd), v in m.items():
+            if dd == d and o != d:
+                ac[o] = ac.get(o, 0.0) + v
+        if ac:
+            out[motivo] = ac
+    return out
+
+
+async def derive_mercado_captable_v2(agebs_geo_capt, natural_ring, pin_lng, pin_lat,
+                                     anillo_min, fuente_iso, poligono_captable,
+                                     muni_pin: Optional[str], estado_pin: Optional[str]) -> Dict[str, Any]:
+    """Captable ANCLADO al censo: el share por municipio de origen es el OBSERVADO
+    (flujos trabajo+estudio hacia el municipio del pin) y dentro de cada municipio se
+    desagrega por gravedad (Huff) entre sus AGEBs. Municipios de la corona sin flujo
+    censal → residual por modelo, DECLARADO. Sin ancla → v1 Huff (declarado)."""
+    v1 = derive_mercado_captable(agebs_geo_capt, natural_ring, pin_lng, pin_lat,
+                                 anillo_min, fuente_iso, poligono_captable)
+    if not v1.get("activo") or not muni_pin:
+        return v1
+    ancla = await _od_cargar_estado(estado_pin or "")
+    if not ancla.get("ok"):
+        v1["ancla_censal"] = {"ok": False, "detalle": ancla.get("error"),
+                              "nota": "Sin ancla censal disponible · share por modelo Huff (v1)."}
+        return v1
+    marg = _od_marginales_hacia(ancla["flujos"], muni_pin)
+    entr = {}
+    for motivo, mm in marg.items():
+        for o, v in mm.items():
+            entr[o] = entr.get(o, 0.0) + v
+    if not entr:
+        v1["ancla_censal"] = {"ok": True, "fuente": ancla.get("fuente"),
+                              "nota": f"El ancla censal no registra flujos hacia {muni_pin} · share por modelo (v1)."}
+        return v1
+    tot_censo = sum(entr.values())
+    # Peso Huff por municipio dentro de la corona (para desagregar y para el residual)
+    peso_muni: Dict[str, float] = {}
+    for o in v1["origenes"]:
+        m = _norm_nombre(o.get("municipio"))
+        peso_muni[m] = peso_muni.get(m, 0.0) + (o.get("share_pct") or 0.0)
+    con_ancla = {m: entr[m] for m in peso_muni if m in entr}
+    cobertura = sum(con_ancla.values()) / tot_censo if tot_censo else 0.0
+    share_censo_total = sum(peso_muni[m] for m in con_ancla) or 1.0
+    origenes_v2 = []
+    for o in v1["origenes"]:
+        m = _norm_nombre(o.get("municipio"))
+        o2 = dict(o)
+        if m in con_ancla and peso_muni.get(m):
+            # share municipal OBSERVADO × distribución Huff dentro del municipio
+            share_m_obs = con_ancla[m] / tot_censo * 100.0
+            o2["share_pct"] = round(share_m_obs * ((o.get("share_pct") or 0.0) / peso_muni[m]), 1)
+            o2["fuente_share"] = "censo_2020"
+            o2["viajes_censales_muni"] = round(con_ancla[m])
+        else:
+            o2["fuente_share"] = "modelo_huff"
+        origenes_v2.append(o2)
+    # Renormalizar a 100 conservando la proporción observado/modelo
+    s = sum(x["share_pct"] or 0 for x in origenes_v2) or 1.0
+    for x in origenes_v2:
+        x["share_pct"] = round((x["share_pct"] or 0) / s * 100.0, 1)
+    origenes_v2.sort(key=lambda x: -(x["share_pct"] or 0))
+    v1["origenes"] = origenes_v2
+    v1["metodo"] = "od_sintetico_inegi_v1"
+    v1["ancla_censal"] = {
+        "ok": True, "fuente": ancla.get("fuente"),
+        "muni_destino": muni_pin,
+        "viajes_totales_censo": round(tot_censo),
+        "cobertura_corona_pct": round(cobertura * 100, 1),
+        "confianza": "anclado_censo" if cobertura >= OD_COBERTURA_MIN else "parcialmente_anclado",
+        "motivos_disponibles": sorted(marg.keys()),
+    }
+    v1["nota"] = ("Share por municipio ANCLADO a flujos observados del Censo 2020 "
+                  "(trabajo/estudio) y desagregado por gravedad dentro de cada municipio. "
+                  "Municipios sin flujo censal → modelo declarado. Compras/turismo siguen "
+                  "por modelo hasta calibrar (DENUE/DATATUR).")
+    return v1
+
+
 def _analisis_identidad(analisis_nombre, colonia, municipio, estado) -> Dict[str, Any]:
     """ZA-8 · Identidad universal del análisis, presente en TODOS los encabezados:
     'nombre_del_usuario · colonia · municipio · estado · vAAAAMMDDHHMM'.
@@ -5980,13 +6178,15 @@ async def zona_procesar(req: ZonaRequest):
     except Exception:
         pass
     # CAPTABLE · derivar y exponer (opt-in; integridad: errores ya declarados)
+    # v2 OD-SINTÉTICO: ancla censal si está disponible; si no, degrada a Huff v1 declarado.
     try:
         mercado_captable = None
         if captable_raw:
             geo_capt = parse_di_geometria(captable_raw["di"]) if captable_raw.get("di") else []
-            mercado_captable = derive_mercado_captable(
+            mercado_captable = await derive_mercado_captable_v2(
                 geo_capt, outer_ring, req.lng, req.lat,
-                captable_raw["min"], captable_raw["fuente"], captable_raw["ring"])
+                captable_raw["min"], captable_raw["fuente"], captable_raw["ring"],
+                demografia.get("municipio"), demografia.get("estado"))
         payload["zone_data"]["mercado_captable"] = mercado_captable
         if mercado_captable and mercado_captable.get("activo") \
                 and isinstance(payload["zone_data"].get("dem1_meta"), dict):
@@ -6013,6 +6213,28 @@ async def zona_procesar(req: ZonaRequest):
 # y por zona. Almacén en memoria (sustituible por DB/identidad real en producción).
 # El objetivo operativo: restringir el acceso DETALLADO a zonas no autorizadas,
 # manteniendo el acceso GENERAL (preliminar) disponible para evaluaciones.
+
+# ════════════ OD-SINTÉTICO · diagnóstico del ancla censal ════════════
+@app.get("/api/od/status")
+async def od_status(estado: str, muni: Optional[str] = None):
+    """Diagnóstico del ancla censal SIN necesitar al equipo: reporta qué fuente de la
+    cadena respondió (local/autofetch), cuántos flujos parseó y los marginales top hacia
+    el municipio dado. Permite verificar/ajustar DATARIA_OD_URL_TPL desde Safari."""
+    OD_CACHE.pop(_norm_nombre(estado), None)   # forzar recarga para diagnóstico honesto
+    ancla = await _od_cargar_estado(estado)
+    out = {"ok": ancla.get("ok"), "estado": estado, "fuente": ancla.get("fuente"),
+           "error": ancla.get("error"),
+           "config": {"autofetch": OD_AUTOFETCH, "url_tpl": OD_URL_TPL or "(sin configurar)",
+                      "dir_local": str(OD_DIR_LOCAL)}}
+    if ancla.get("ok"):
+        fl = ancla["flujos"]
+        out["flujos"] = {k: len(v) for k, v in fl.items()}
+        if muni:
+            marg = _od_marginales_hacia(fl, muni)
+            out["marginales_hacia_muni"] = {
+                k: sorted(v.items(), key=lambda kv: -kv[1])[:8] for k, v in marg.items()}
+    return out
+
 
 # ════════════ ZA-2 · GEOCODIFICACIÓN (dirección ⇄ pin) ════════════
 # Cadena de proveedores: 1º ArcGIS World Geocoder (estándar Esri; P5: cuando el equipo
