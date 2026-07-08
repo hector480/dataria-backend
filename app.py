@@ -4269,7 +4269,27 @@ def derive_mercado_captable(agebs_geo_capt: List[Dict], natural_ring: List[List[
 #      el sandbox de desarrollo no, por eso existe /api/od/status para verificar desde Safari.
 #   3) Sin ancla → v1 Huff (modelo declarado). NUNCA se inventa flujo.
 # Emparejamiento por NOMBRE normalizado de municipio (sin catálogos externos que inventar).
-OD_URL_TPL = os.environ.get("DATARIA_OD_URL_TPL", "")   # se define tras verificar la URL INEGI
+# URL REAL verificada en INEGI vía navegador (8 jul 2026): tabulado "Movilidad cotidiana"
+# del Cuestionario Ampliado, nivel Estatal/Municipal. Patrón confirmado con eum, nl y jal.
+OD_URL_TPL = os.environ.get(
+    "DATARIA_OD_URL_TPL",
+    "https://www.inegi.org.mx/contenidos/programas/ccpv/2020/tabulados/ampliado/"
+    "cpv2020_a_{abrev}_10_movilidad_cotidiana.xlsx")
+# Abreviaturas INEGI de entidad (verificadas: nl, jal, eum; resto = convención estándar
+# INEGI de estos mismos tabulados — cualquier desviación se diagnostica con /api/od/status)
+ESTADO_ABREV_INEGI = {
+    "AGUASCALIENTES": "ags", "BAJA CALIFORNIA": "bc", "BAJA CALIFORNIA SUR": "bcs",
+    "CAMPECHE": "camp", "COAHUILA DE ZARAGOZA": "coah", "COAHUILA": "coah",
+    "COLIMA": "col", "CHIAPAS": "chis", "CHIHUAHUA": "chih",
+    "CIUDAD DE MEXICO": "cdmx", "DURANGO": "dgo", "GUANAJUATO": "gto",
+    "GUERRERO": "gro", "HIDALGO": "hgo", "JALISCO": "jal", "MEXICO": "mex",
+    "MICHOACAN DE OCAMPO": "mich", "MICHOACAN": "mich", "MORELOS": "mor",
+    "NAYARIT": "nay", "NUEVO LEON": "nl", "OAXACA": "oax", "PUEBLA": "pue",
+    "QUERETARO": "qro", "QUINTANA ROO": "qroo", "SAN LUIS POTOSI": "slp",
+    "SINALOA": "sin", "SONORA": "son", "TABASCO": "tab", "TAMAULIPAS": "tamps",
+    "TLAXCALA": "tlax", "VERACRUZ DE IGNACIO DE LA LLAVE": "ver", "VERACRUZ": "ver",
+    "YUCATAN": "yuc", "ZACATECAS": "zac",
+}
 OD_AUTOFETCH = os.environ.get("DATARIA_OD_AUTOFETCH", "1") == "1"
 OD_DIR_LOCAL = Path(os.environ.get("DATARIA_OD_DIR", str(Path(__file__).resolve().parent / "datos" / "od_censo")))
 OD_CACHE: Dict[str, Dict[str, Any]] = {}
@@ -4346,7 +4366,8 @@ async def _od_cargar_estado(estado_nombre: str) -> Dict[str, Any]:
     # 2 · autofetch remoto (URL plantilla verificable vía /api/od/status)
     if OD_AUTOFETCH and OD_URL_TPL:
         try:
-            url = OD_URL_TPL.format(estado=ent.replace(" ", "%20"))
+            abrev = ESTADO_ABREV_INEGI.get(ent, ent.replace(" ", "").lower())
+            url = OD_URL_TPL.format(abrev=abrev, estado=ent.replace(" ", "%20"))
             async with httpx.AsyncClient(timeout=90) as client:
                 r = await client.get(url, headers={"User-Agent": "Dataria/2.0"})
                 r.raise_for_status()
