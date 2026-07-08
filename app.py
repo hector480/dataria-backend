@@ -4112,6 +4112,154 @@ def derive_percepcion_detalle(perception, segments, demografia, productos) -> Di
     return det
 
 
+# ════════════ CAPTABLE · Mercado captable por MODELO GRAVITACIONAL (Huff v1) ════════════
+# Regla de negocio (metodología §3/§6): el captable viene de FUERA de la zona natural.
+# HONESTIDAD DEL DATO: los motores de ruteo NO entregan flujos origen-destino observados
+# (eso es telemetría · ticket P2). v1 usa el ESTÁNDAR Huff que la propia metodología pide:
+# atracción de cada AGEB de la CORONA (anillo captable − zona natural) ∝ masa/(1+dist)^exp,
+# sobre demografía REAL del KMZ. El share queda ETIQUETADO como modelo y se actualiza a
+# flujos observados cuando el OD de Predik esté disponible. Extranjero/turístico: la regla
+# se ENCIENDE SOLA cuando la base publique columnas de población extranjera (ticket P1).
+HUFF_EXP = float(os.environ.get("DATARIA_HUFF_EXP", "2.0"))
+CAPTABLE_MIN_TOPE = int(os.environ.get("DATARIA_CAPTABLE_MIN_TOPE", "30"))
+UMBRAL_EXTRANJERO_TURISTICO = float(os.environ.get("DATARIA_UMBRAL_EXTRANJERO", "0.03"))
+_RE_EXTRANJERO = re.compile(r"extranj|otro\s*pa[ií]s", re.I)
+_RE_MASA_HOG = re.compile(r"hogares", re.I)
+_RE_MASA_POB = re.compile(r"poblaci", re.I)
+_RE_MUNICIPIO = re.compile(r"municip", re.I)
+
+
+def _attr_num(attrs: Dict, regex, excl=None) -> Optional[float]:
+    """Primer valor numérico de attrs cuya CLAVE matchea regex (parsea comas).
+    `excl`: regex de EXCLUSIÓN de claves (p. ej. población TOTAL sin contar la columna
+    'Población nacida en otro país', que también contiene 'población')."""
+    for k, v in (attrs or {}).items():
+        ks = str(k)
+        if not regex.search(ks):
+            continue
+        if excl is not None and excl.search(ks):
+            continue
+        try:
+            return float(str(v).replace(",", "").replace("$", "").strip())
+        except (ValueError, TypeError):
+            continue
+    return None
+
+
+def derive_mercado_captable(agebs_geo_capt: List[Dict], natural_ring: List[List[float]],
+                            pin_lng: float, pin_lat: float, anillo_min: int,
+                            fuente_iso: Optional[str],
+                            poligono_captable: Optional[List[List[float]]] = None) -> Dict[str, Any]:
+    """Orígenes del mercado captable en la CORONA (fuera de la zona natural), con share
+    estimado por gravedad (Huff) sobre masas reales del KMZ. Integridad: sin masa
+    publicada → conteo de AGEBs con confianza declarada; sin corona → captable vacío."""
+    corona = []
+    for g in (agebs_geo_capt or []):
+        la, ln = g.get("lat"), g.get("lng")
+        if la is None or ln is None:
+            continue
+        if natural_ring and _point_in_ring(ln, la, natural_ring):
+            continue   # dentro de la zona natural → NO es captable
+        corona.append(g)
+    out: Dict[str, Any] = {
+        "activo": True, "metodo": "huff_gravity_v1", "exponente": HUFF_EXP,
+        "anillo_min": anillo_min, "fuente_isocrona": fuente_iso,
+        "n_agebs_corona": len(corona), "masa_fuente": None,
+        "origenes": [], "extranjero": None,
+        "poligono_captable": poligono_captable,
+        "nota": ("Share estimado por MODELO GRAVITACIONAL (Huff) sobre demografía real de "
+                 "la corona captable. Se actualizará a flujos origen-destino OBSERVADOS "
+                 "cuando el API de movilidad (Predik OD) esté disponible."),
+    }
+    if not corona:
+        out["activo"] = False
+        out["nota"] = "Sin AGEBs en la corona captable (anillo captable ≈ zona natural)."
+        return out
+    # Masa por AGEB: hogares publicados en el KMZ; si no, población; si no, conteo (declarado)
+    con_hog = sum(1 for g in corona if _attr_num(g.get("attrs"), _RE_MASA_HOG))
+    con_pob = sum(1 for g in corona if _attr_num(g.get("attrs"), _RE_MASA_POB))
+    if con_hog >= len(corona) * 0.5:
+        out["masa_fuente"] = "hogares_kmz"
+        masa_de = lambda g: _attr_num(g.get("attrs"), _RE_MASA_HOG) or 0.0
+    elif con_pob >= len(corona) * 0.5:
+        out["masa_fuente"] = "poblacion_kmz"
+        masa_de = lambda g: _attr_num(g.get("attrs"), _RE_MASA_POB, excl=_RE_EXTRANJERO) or 0.0
+    else:
+        out["masa_fuente"] = "conteo_agebs (la base no publica masa en el KMZ · menor confianza)"
+        masa_de = lambda g: 1.0
+    lat0 = math.radians(pin_lat)
+    acumul: Dict[tuple, Dict[str, Any]] = {}
+    total_w = 0.0
+    for g in corona:
+        dlat = (g["lat"] - pin_lat) * 111.32
+        dlng = (g["lng"] - pin_lng) * 111.32 * math.cos(lat0)
+        dist = math.sqrt(dlat * dlat + dlng * dlng)
+        masa = masa_de(g)
+        w = masa / ((1.0 + dist) ** HUFF_EXP) if masa else 0.0
+        total_w += w
+        muni = None
+        for k, v in (g.get("attrs") or {}).items():
+            if _RE_MUNICIPIO.search(str(k)) and v:
+                muni = str(v)[:40]
+                break
+        key = (g.get("nse_txt") or "N/D", muni)
+        a = acumul.setdefault(key, {"nse": key[0], "municipio": key[1], "n_agebs": 0,
+                                    "hogares_est": 0.0, "w": 0.0, "dists": []})
+        a["n_agebs"] += 1
+        a["hogares_est"] += masa if out["masa_fuente"] != "conteo_agebs (la base no publica masa en el KMZ · menor confianza)" else 0
+        a["w"] += w
+        a["dists"].append(dist)
+    origenes = []
+    for a in acumul.values():
+        origenes.append({
+            "nse": a["nse"], "municipio": a["municipio"],
+            "n_agebs": a["n_agebs"],
+            "hogares_est": round(a["hogares_est"]) if a["hogares_est"] else None,
+            "dist_km_mediana": round(statistics.median(a["dists"]), 1),
+            "share_pct": round(a["w"] / total_w * 100, 1) if total_w else None,
+        })
+    origenes.sort(key=lambda x: -(x["share_pct"] or 0))
+    out["origenes"] = origenes[:12]
+    # ── Regla EXTRANJERO/TURÍSTICO: se enciende sola cuando la base publique columnas ──
+    pob_ext = 0.0
+    pob_tot = 0.0
+    hay_columna = False
+    for g in corona:
+        ext = _attr_num(g.get("attrs"), _RE_EXTRANJERO)
+        pob = _attr_num(g.get("attrs"), _RE_MASA_POB, excl=_RE_EXTRANJERO)
+        if ext is not None:
+            hay_columna = True
+            pob_ext += ext
+            pob_tot += pob or 0.0
+    if hay_columna and pob_tot <= 0:
+        out["extranjero"] = {
+            "presente": True, "poblacion_extranjera": round(pob_ext), "share_pct": None,
+            "zona_turistica": None,
+            "nota": ("La base publica población extranjera pero no población total en el "
+                     "KMZ; el share se calculará cuando ambas columnas estén presentes."),
+        }
+    elif hay_columna and pob_tot > 0:
+        share = pob_ext / pob_tot
+        out["extranjero"] = {
+            "presente": True, "poblacion_extranjera": round(pob_ext),
+            "share_pct": round(share * 100, 2),
+            "zona_turistica": share >= UMBRAL_EXTRANJERO_TURISTICO,
+            "umbral_pct": UMBRAL_EXTRANJERO_TURISTICO * 100,
+            "nota": ("ZONA CON COMPONENTE EXTRANJERO RELEVANTE: el mercado captable debe "
+                     "incluir al visitante/residente extranjero (regla turística de la "
+                     "metodología)." if share >= UMBRAL_EXTRANJERO_TURISTICO else
+                     "Componente extranjero presente pero por debajo del umbral turístico."),
+        }
+    else:
+        out["extranjero"] = {
+            "presente": False,
+            "nota": ("Próximamente · la base aún no publica columnas de población "
+                     "extranjera en esta capa (ticket P1); la regla se activa sola al "
+                     "aparecer."),
+        }
+    return out
+
+
 def _analisis_identidad(analisis_nombre, colonia, municipio, estado) -> Dict[str, Any]:
     """ZA-8 · Identidad universal del análisis, presente en TODOS los encabezados:
     'nombre_del_usuario · colonia · municipio · estado · vAAAAMMDDHHMM'.
@@ -4938,6 +5086,9 @@ class ZonaRequest(BaseModel):
     # ISO-MULTI · fuente de isócronas: predik (default) | valhalla | ors | tomtom.
     # None → ISO_FUENTE_DEFAULT. La lógica de negocio no cambia con la fuente.
     iso_fuente: Optional[str] = None
+    # CAPTABLE · opt-in (análisis más pesado: isócrona amplia + DI de la corona)
+    incluir_captable: bool = False
+    captable_min: Optional[int] = None   # None → principal+10, tope CAPTABLE_MIN_TOPE
     # Unidades que el proyecto nuevo planea construir (campo del front). Topa el pronóstico de
     # venta a 12/18/24 meses: no se puede vender más de lo que se construye. None → sin tope.
     unidades_proyecto: Optional[int] = None
@@ -5682,6 +5833,20 @@ async def zona_procesar(req: ZonaRequest):
         except Exception as e:
             errors["descarga_di"] = str(e)
 
+        # CAPTABLE (opt-in) · anillo amplio + DI de la corona para el modelo Huff v1
+        captable_raw = None
+        if req.incluir_captable:
+            try:
+                capt_min = req.captable_min or min(CAPTABLE_MIN_TOPE,
+                                                   (profile.get("principal") or 8) + 10)
+                capt_geo, capt_fuente, _cn = await fetch_isochrone_fuente(
+                    client, req.lat, req.lng, capt_min, iso_fuente_usada)
+                di_capt = await fetch_descarga_di(client, capt_geo["coordinates"][0], "NSE")
+                captable_raw = {"ring": capt_geo["coordinates"][0], "min": capt_min,
+                                "fuente": capt_fuente, "di": di_capt}
+            except Exception as e:
+                errors["mercado_captable"] = str(e)[:120]
+
     # FILTRO ESPACIAL: garantizar que solo entren proyectos/tipologías DENTRO del anillo mayor
     vvv_venta = filter_vvv_by_polygon(vvv_venta, outer_ring)
     vvv_renta = filter_vvv_by_polygon(vvv_renta, outer_ring)
@@ -5814,6 +5979,21 @@ async def zona_procesar(req: ZonaRequest):
             errors["iso_fallback"] = iso_nota
     except Exception:
         pass
+    # CAPTABLE · derivar y exponer (opt-in; integridad: errores ya declarados)
+    try:
+        mercado_captable = None
+        if captable_raw:
+            geo_capt = parse_di_geometria(captable_raw["di"]) if captable_raw.get("di") else []
+            mercado_captable = derive_mercado_captable(
+                geo_capt, outer_ring, req.lng, req.lat,
+                captable_raw["min"], captable_raw["fuente"], captable_raw["ring"])
+        payload["zone_data"]["mercado_captable"] = mercado_captable
+        if mercado_captable and mercado_captable.get("activo") \
+                and isinstance(payload["zone_data"].get("dem1_meta"), dict):
+            payload["zone_data"]["dem1_meta"]["nota_captable"] = \
+                "Mercado captable ACTIVO (modelo Huff v1) · orígenes en Zona de Análisis"
+    except Exception as e:
+        errors["mercado_captable"] = str(e)[:120]
     payload["errors"] = errors
     # ARQ-MODULAR · dejar el análisis en caché para servir secciones independientes
     # (/api/zona/seccion) y devolver la llave al front (= identidad ZA-8).

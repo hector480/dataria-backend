@@ -6434,6 +6434,10 @@ function tplZonaAnalisis(z){
           <div class="za-card-h">1 · Ubicación del predio</div>
           <div class="za-field-grid">
             <label class="za-lbl">Nombre del análisis<input class="za-in" id="za-analisis-nombre" placeholder="p. ej. Torre Centro 01"></label>
+            <label class="za-lbl" style="display:flex;align-items:center;gap:8px;">
+              <input type="checkbox" id="za-captable" style="width:auto;margin:0;">
+              <span>Incluir mercado captable <span style="font-size:10px;color:#8A90A6;">(orígenes · modelo Huff · análisis más lento)</span></span>
+            </label>
             <label class="za-lbl">Fuente de isócronas<select class="za-in" id="za-iso-fuente">
               <option value="">Predik (default)</option>
               <option value="valhalla">Valhalla · OSM (gratuita)</option>
@@ -6503,6 +6507,7 @@ function tplZonaAnalisis(z){
           <button class="mf-btn" onclick="zaCompararFuentes(this)">⚖ Comparar fuentes de isócrona</button>
         </div>
         <div id="za-comparar-out" style="margin-top:8px;"></div>
+        <div id="za-captable-out" style="margin-top:8px;"></div>
 
         <div class="za-results" id="za-results"></div>
       </div>
@@ -6573,6 +6578,26 @@ function zaSetPin(lat, lng, recenter){
   if(recenter && zaMap.getZoom()<13) zaMap.setView([lat,lng],14);
   const c = document.getElementById('za-coords');
   if(c) c.innerHTML = 'Pin: <b>'+lat.toFixed(5)+', '+lng.toFixed(5)+'</b>';
+  // ZA-2 · autollenar el domicilio desde el pin (backend: ArcGIS→Nominatim); no pisa lo capturado
+  zaAutoDomicilio(lat, lng);
+}
+
+let _zaRevInflight = null;
+async function zaAutoDomicilio(lat, lng){
+  try{
+    const token = String(lat.toFixed(5)) + ',' + String(lng.toFixed(5));
+    _zaRevInflight = token;
+    const r = await fetch(DATARIA_BACKEND_URL.replace(/\/+$/,'') + `/api/zona/reverse?lat=${lat}&lng=${lng}`);
+    const j = await r.json();
+    if(_zaRevInflight !== token) return;   // el pin ya se movió: descartar respuesta vieja
+    if(!j || j.ok === false || !j.fuente) return;
+    const fill = (id, v)=>{ const el = document.getElementById(id); if(el && !el.value.trim() && v) el.value = v; };
+    fill('za-estado', j.estado);
+    fill('za-ciudad', j.municipio);
+    fill('za-colonia', j.colonia);
+    if(j.direccion){ fill('za-calle', (j.direccion.split(',')[0]||'').trim()); }
+    zaSetStatus(`Domicilio detectado (${j.fuente}): ${[j.colonia, j.municipio, j.estado].filter(Boolean).join(', ') || j.direccion || ''}`, 'ok');
+  }catch(e){ /* silencioso: el usuario puede capturar a mano */ }
 }
 
 /* ───────────────── Geocodificación (Nominatim) ───────────────── */
@@ -6588,6 +6613,18 @@ async function zaGeocode(){
   if(parts.length<=1){ zaSetStatus('Captura al menos ciudad y estado para buscar.', 'warn'); return; }
   const q = parts.join(', ');
   zaSetStatus('Geocodificando dirección…', 'info');
+  // ZA-2 · primero el BACKEND (cadena ArcGIS→Nominatim con política propia); si el
+  // backend no responde, fallback directo a Nominatim desde el navegador.
+  try{
+    const r = await fetch(DATARIA_BACKEND_URL.replace(/\/+$/,'') + '/api/zona/geocode?q=' + encodeURIComponent(q));
+    const j = await r.json();
+    if(j && j.ok && j.resultados && j.resultados.length){
+      const c = j.resultados[0];
+      zaSetPin(c.lat, c.lng, true);
+      zaSetStatus(`Ubicación encontrada (${j.fuente}): ${c.label||''}. Ajusta el pin si es necesario.`, 'ok');
+      return;
+    }
+  }catch(e){ /* sigue al fallback directo */ }
   try{
     const url = ZA_NOMINATIM + '?format=json&limit=1&countrycodes=mx&q=' + encodeURIComponent(q);
     const r = await fetch(url, {headers:{'Accept':'application/json'}});
@@ -6957,6 +6994,7 @@ async function zaRunAnalysis(){
     zone_name: gv('za-colonia') || gv('za-ciudad') || 'Zona de análisis',
     analisis_nombre: gv('za-analisis-nombre') || null,
     iso_fuente: gv('za-iso-fuente') || null,
+    incluir_captable: !!(document.getElementById('za-captable')||{}).checked,
     colonia: gv('za-colonia') || null,
     municipio: gv('za-ciudad'), estado: gv('za-estado'), pais: 'México',
     norm: ZA_STATE.norm,
@@ -7058,6 +7096,9 @@ async function zaRunAnalysis(){
 
     // Actualizar la sección zona con percepción de valor real (etapa 2)
     zaApplyBackendPerception(data.zone_data._zona_analisis);
+
+    // CAPTABLE · pintar orígenes del mercado captable si el análisis lo incluyó
+    try{ zaRenderCaptable(data.zone_data.mercado_captable); }catch(e){}
 
     zaShowLoading(false);
     zaSetStatus('Tablero actualizado con datos de la zona.', 'ok');
@@ -7297,6 +7338,45 @@ async function zaCompararFuentes(btn){
   }catch(e){
     out.innerHTML = `<div style="font-size:12px;color:var(--amber);">Error: ${e.message}</div>`;
   }
+}
+
+/* CAPTABLE · orígenes del mercado captable (modelo Huff · backend calcula, front pinta) */
+let ZA_CAPTABLE_LAYER = null;
+function zaRenderCaptable(mc){
+  const out = document.getElementById('za-captable-out');
+  if(!out) return;
+  if(ZA_CAPTABLE_LAYER && zaMap){ try{ zaMap.removeLayer(ZA_CAPTABLE_LAYER); }catch(e){} ZA_CAPTABLE_LAYER=null; }
+  if(!mc){ out.innerHTML=''; return; }
+  if(!mc.activo){
+    out.innerHTML = `<div class="za-res-card"><div class="za-res-h">Mercado captable</div><div class="za-res-sub">${mc.nota||'Sin corona captable.'}</div></div>`;
+    return;
+  }
+  // Anillo captable en el mapa (naranja punteado)
+  if(mc.poligono_captable && zaMap && typeof L!=='undefined'){
+    try{
+      ZA_CAPTABLE_LAYER = L.polygon(mc.poligono_captable.map(c=>[c[1],c[0]]),
+        {color:'#F59E0B', fill:false, weight:2, dashArray:'10 6'}).addTo(zaMap);
+    }catch(e){}
+  }
+  const filas = (mc.origenes||[]).slice(0,8).map(o=>`<tr>
+    <td><span class="badge b-blue">${o.nse}</span></td>
+    <td>${o.municipio||'—'}</td>
+    <td>${o.dist_km_mediana} km</td>
+    <td>${o.hogares_est!=null?o.hogares_est.toLocaleString('es-MX'):'—'}</td>
+    <td style="font-weight:700;color:var(--green);">${o.share_pct!=null?o.share_pct+'%':'—'}</td>
+  </tr>`).join('');
+  const ext = mc.extranjero || {};
+  const extHtml = ext.presente
+    ? `<div class="za-res-note" style="margin-top:6px;${ext.zona_turistica?'border-left:3px solid var(--amber);padding-left:8px;':''}">
+        🌎 Población extranjera en la corona: <b>${ext.share_pct}%</b> (${(ext.poblacion_extranjera||0).toLocaleString('es-MX')} personas)
+        ${ext.zona_turistica?` · <b>ZONA TURÍSTICA/EXTRANJERA</b> (≥${ext.umbral_pct}%)`:''}<br>${ext.nota||''}</div>`
+    : `<div class="za-res-sub" style="margin-top:6px;color:var(--amber,#F59E0B);">🌎 Extranjero: ${ext.nota||'próximamente'}</div>`;
+  out.innerHTML = `<div class="za-res-card">
+    <div class="za-res-h">Mercado captable · orígenes <span style="font-weight:400;font-size:10px;color:#8A90A6;">anillo ${mc.anillo_min} min (${mc.fuente_isocrona||''}) · ${mc.n_agebs_corona} AGEBs en corona · masa: ${mc.masa_fuente||''}</span></div>
+    <div class="tbl-wrap"><table style="font-size:11px;"><thead><tr><th>NSE</th><th>Municipio</th><th>Dist. mediana</th><th>Hogares est.</th><th>Share (Huff)</th></tr></thead><tbody>${filas}</tbody></table></div>
+    ${extHtml}
+    <div class="za-res-sub" style="margin-top:6px;">${mc.nota||''}</div>
+  </div>`;
 }
 
 /* ZA-5 · despliegue de la lista de cada set de competidores */

@@ -1086,3 +1086,26 @@ VALIDADO: py_compile · node --check · unitarias (parsers 3 proveedores; IoU 1.
 fallback declarado; comparador e2e simulado IoU 0.629/área 155.4%) · front ✓. ENTORNO: el
 sandbox bloquea valhalla/ors/tomtom y Predik está en 403 → los checks EN VIVO no corren
 aquí hoy; en Render (egreso abierto) Valhalla opera. Validar en Safari tras push.
+
+## CAPTABLE-V1 + ZA-2 FRONT. Mercado captable (Huff) + autollenado de domicilio — [x] HECHO (8 jul 2026)
+HONESTIDAD DEL DATO (corrección a la premisa): los motores de ruteo NO entregan flujos
+origen-destino observados (eso es telemetría/ticket P2). v1 implementa el ESTÁNDAR que la
+propia metodología pide (Huff): corona captable = anillo amplio (principal+10, tope 30
+min, opt-in `incluir_captable`) MENOS la zona natural; share por AGEB ∝ masa/(1+dist)^2
+sobre demografía REAL del KMZ; agrupado por NSE×municipio con distancia mediana y hogares
+estimados. SIEMPRE etiquetado metodo=huff_gravity_v1 + masa_fuente declarada (hogares_kmz/
+poblacion_kmz/conteo_agebs) → se actualiza a OD observado cuando exista.
+EXTRANJERO/TURÍSTICO: regla que SE ENCIENDE SOLA al aparecer columnas (regex extranj/otro
+país) en el KMZ (ticket P1): share vs población total (con EXCLUSIÓN de la propia columna
+extranjera del denominador — bug detectado en unitarias y corregido), umbral turístico 3%
+configurable, badge ZONA TURÍSTICA; sin columnas → "Próximamente". Sin población total →
+share None con nota (no se inventa).
+ZA-2 FRONT: al colocar/arrastrar el pin → /api/zona/reverse autollena estado/municipio/
+colonia/calle SOLO si están vacíos (guard anti-respuestas viejas al arrastrar); botón
+"Buscar dirección" ahora usa /api/zona/geocode del backend (cadena ArcGIS→Nominatim) con
+fallback directo a Nominatim.
+UI: checkbox "Incluir mercado captable" · tarjeta de orígenes (NSE, municipio, distancia,
+hogares, share Huff) · anillo captable naranja punteado en el mapa · línea extranjero.
+VALIDADO: py_compile · node --check · unitarias (corona excluye zona natural; Σshare=100;
+turística 5%→flag; sin columnas→próximamente; ext sin total→share None; sin masa→conteo
+declarado) · piezas front completas. En vivo: requiere push (proveedores bloqueados aquí).
