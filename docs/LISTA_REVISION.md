@@ -1372,3 +1372,115 @@ verify_all 8/8 + render 10/10 tras el blindaje.
   y Lanka ($72.4k) NO directos y FUERA de la zona clip (0.09 km² ⊆ anillo, vértices y
   muestreo verificados). Pendiente post-push: re-validar pin y anclas en producción con
   isócronas reales. Revisada dos veces.
+
+## 2026-07-18 · VALIDACIÓN EN PRODUCCIÓN POST-PUSH (cierra el pendiente del lote del 8 jul) — [x] HECHA
+- Entorno: producción Render (dataria-orchestrator) EN VIVO vía navegador local (el sandbox
+  cloud bloquea ese dominio con 403; la API PRSP sí responde desde el sandbox). Front
+  desplegado = push del 8 jul verificado por marcadores (columna "Viajes/día al destino",
+  hayCommuters, sin za-iso-fuente/comparador, sin 'próximamente' de movilidad/extranjero —
+  los 7 restantes son los permitidos de fichas INV pendientes de P3/dump —, footer vigente,
+  sin notas de tickets). ARRANQUE del tablero SIN pantalla en blanco (nav + secciones pintan
+  con switchZone('ZONE_KEY_PLACEHOLDER') en el HTML) → pendiente prioritario #3 de CLAUDE.md
+  queda VERIFICADO en producción.
+- Payloads regenerados EN PRODUCCIÓN con isócronas reales (iso_fuente_usada=valhalla, 8/14
+  min) para pin del director (25.65766,-100.44849), ZMM Centro y Valle Poniente; batería de
+  14 invariantes de payload por zona (ZONA-RIO, SEC-RANGOS, RENTA-ANCLA, CAPTABLE-V3,
+  integridad, coords):
+  · DIRECTOR 14/14 ✓ · MISMOS 5 directos de banda del 8 jul (Jardín Secreto, Mun, Vía
+    Cordillera-Azuria, We2t T4/T5) ahora con isócrona real; banda [67,291–101,892] mediana
+    $84,591 MAD $8,650; clip 0.09 de 6.02 km² ⊆ isócrona (5/5 vértices = proyectos);
+    14 PRIMARIOS con lat/lng al 100% → los puntos azules del pendiente del 8 jul YA tienen
+    dato en producción (con anillo local eran 0 legítimos); renta banda observada
+    [209.82, 420] n=20 IDÉNTICA al 8 jul, solo A·$15-25M y A·>$25M publican $388/m²/mes,
+    7 N/D legítimos; captable v3: 265,679 viajes/día, IPF exacto sobre MTY/SPGG/Sta Catarina,
+    columnas_faltantes=[], ningún % commuter imposible. NSE dominante A por percepción.
+  · ZMM CENTRO · banda_percepcion con 48 directos (n_zona 74), clip 49.56 de 106.76 km²
+    (cobertura 46.4%) ⊆ ANILLO EFECTIVO; dominante B por percepción ✓ (ancla); SEC-RANGOS
+    16 sup + 13 inf = 29 ✓; renta anclada [142.86, 400.43] n=484 con 6 publicados (B $310,
+    A $362) y resto N/D; captable v3 IPF exacto: 1,363,575 viajes/día · 7 municipios.
+  · VALLE PONIENTE · 2 directos → NO banda_percepcion (regla <3 ✓); método barrera_nse
+    (bloque alto_valor de 27 AGEBs, ratio 1.36, "anillo base ampliado 8→14 min por muestra
+    insuficiente" DECLARADO en motivo); dominante A ✓; renta [189.29, 444.44] n=34, solo
+    A publica $406/m²/mes; captable v3 IPF exacto (230,308 viajes/día · 3 municipios).
+- CAUSA RAÍZ del único ✗ del harness de validación (zona ⊄ isócrona en ZMM/VP): (a) el clip
+  de ZONA-RIO recorta contra el ANILLO EFECTIVO (_ring_zona = outer 14' si operó la
+  ampliación de muestra de ZONA-REGLAS; base 8' si no) y el harness comparaba contra el
+  anillo fijo; los 14 vértices "fuera" de ZMM están a 0 m del borde (flotantes del
+  point-in-ring sobre vértices del clip S-H) → ARTEFACTO DEL CHECK, no defecto; (b) en VP el
+  polígono es el bloque de AGEBs de barrera_nse (método previo al lote), que rebasa la
+  isócrona hasta 912 m por granularidad AGEB → por diseño, no es de ZONA-RIO.
+- HALLAZGO MENOR (transparencia · requiere checkpoint antes de tocar código): cuando
+  COINCIDEN ampliación de muestra 8→14 y banda_percepcion (caso ZMM), la declaración de
+  ampliación NO viaja al payload: el motivo de ZONA-RIO la sobrescribe y zona_base_ampliada
+  no está en el whitelist del assembly de perception (app.py ~4986). Propuesta mínima:
+  añadir la coletilla "· anillo base ampliado 8→14 min por muestra insuficiente" al motivo
+  de banda_percepcion o exponer el campo. No cambia reglas ni números.
+- Magnitudes de anclas se mueven vs la referencia histórica de CLAUDE.md (ZMM 77 proyectos ·
+  pm² mediana $80,449 · 9 productos; VP 35 · $94,242 · 9): efecto esperado del proveedor
+  real de isócronas (cadena valhalla,predik desde ISO-MULTI) — los INVARIANTES de negocio se
+  cumplen todos, que es exactamente lo que verify_reglas protege. Revisada dos veces.
+
+## 2026-07-18 · GATES DEL 7 JUL CORRIDOS CON API SANA (dump campos · verify_interactive · GDL · ZMM-DEM1) — [x] HECHOS
+- Contexto de red: el sandbox cloud alcanza PRSP pero su proxy bloquea Valhalla y el Predik
+  del wrapper sigue 403 (el mismo del 8 jul) → el dump usó ANILLO DE CONSULTA circular
+  r=2.5 km DECLARADO (solo delimita la consulta a las capas; no es geometría de análisis) y
+  verify_interactive se replicó check por check EN LA PÁGINA REAL de producción (DOM y
+  Chart.js reales) con payload vivo de Monterrey Contry.
+- **DUMP DE CAMPOS VVV/DI** → docs/DUMP_CAMPOS_VVV_DI.md (tablas completas con presencia %).
+  Claves: (1) FRESHNESS RES-4 con causa acotada: FECHA_DE_LEVANTAMIENTO existe al 100%
+  (epoch ms en resumen, ISO en ft); vv_venta viene TODO fechado 2026-02-09 (ZMM 282/282,
+  Guadalupe 24/24) → el "febrero habiendo junio/julio" NO es filtrado del backend Dataria:
+  es lo que entrega el wrapper; el corte está entre la base ArcGIS y PRSP (familia del
+  ticket P3, en el tintero por decisión de Héctor del 18 jul). vv_renta está fechada 2023
+  (jun y dic 2023 en ambas zonas): la banda P10-P90 que ancla renta se observa sobre datos
+  de 2023. PROPUESTA SIN TICKET (checkpoint): publicar fecha_corte/periodo_dato en payload y
+  tablero (regla RES-4) + aviso de staleness (hoy−corte > N días). (2) INV-5: desarrollador
+  NO llega por el wrapper (0 columnas en venta/renta/DI). (3) INV-6/7: SÍ existen
+  CAJONES_ASIGNADOS (100% ft venta y renta) y ACABADO_EN_MURO (83% resumen) + amenidades
+  con '●'. (4) P1/P3: sin columnas de flotante/extranjero y sin serie temporal — solo el
+  snapshot vigente con su fecha (esperado; tickets en el tintero).
+- **VERIFY_INTERACTIVE (equivalente en producción · Contry vivo)**: catálogos venta 8 ·
+  renta 3; D1-D5 ejecutan con datos vivos. El harness real-page VE lo que el mock de Node
+  no puede (los contenedores mb-* son stubs planos fuera del scan de secciones) y destapó
+  DOS defectos E4 REALES: (a) renderRentaCard sin guardas → "undefined" (categoria) y
+  "undefined baño" ×8 en tarjetas de renta con datos vivos — el backend no publica
+  banos/categoria en productos_renta y el template de venta sí guarda con ||'—'; (b) en
+  pestaña fresca sin procesar zona → "Ticket promedio del mix: $NaNM MXN" en Crea tu mezcla
+  (estado placeholder de arranque; liga con el pendiente #3). FIX propuesto: dos guardas en
+  front (checkpoint antes de tocar código). Artefactos del harness real (NO defectos):
+  updateSensi lee sliders no montados al invocar sin flujo de UI, y el mensaje de perfil
+  "undefined" sale del selector no repoblado al inyectar por fuera de switchZone.
+- **GDL CENTRO en producción** (isócrona real Valhalla): banda_percepcion con 20 directos,
+  clip ⊆ isócrona, banda [37,124–53,196] mediana $45,160; dominante B por percepción;
+  captable v3 IPF exacto 1,360,948 viajes/día (El Salto/GDL/Tlaquepaque/Tonalá/Zapopan —
+  sanity metropolitana ✓); DEM1 28 perfiles; 8 productos sin NaN. Dos banderas del harness
+  que son N/D LEGÍTIMOS: 4 secundarios sin pm² llevan rango_percepcion="N/D" (46+9+4=59 ✓)
+  y productos_renta=[] con renta_baseline todo null (sin oferta de renta observada → H8).
+  Lógica universal confirmada fuera de NL.
+- **ANCLA ZMM-DEM1**: conservación de masa TOTAL exacta recomputada de forma independiente
+  (Σ perfiles 1801.0 = Σ buckets 1801.0), además de la auto-validación del meta; banda PTI
+  30-35% RECOMPUTADA con la fórmula bancaria (tasa 9.1% · 240 meses · enganche 10%) y
+  clavada en 49/49 perfiles (±0.5%); GMM salvaguardado con motivo por NSE
+  (bic_mejora/muestra_insuficiente/bic_no_mejora); masas ≥0; bandas ordenadas; PROD-PERFIL
+  cuadra (37 desatendidos/9 equilibrados/3 sobreofertados). Mis 2 ✗ iniciales eran joins
+  incomputables desde el payload (bucket_principal es etiqueta dominante y el ledger
+  `buckets` se poppea antes de publicar; el fallback "no perder masa" reasigna por NSE) →
+  SUGERENCIA (checkpoint): exponer `buckets` para auditar conservación POR bucket desde el
+  payload. Revisada dos veces.
+
+## 2026-07-18 · FIX E4 (autorizado por Héctor): guardas de formato en front — [x] HECHO Y VALIDADO
+- Alcance EXACTO (3 templates · solo display · cero cambio de reglas/cálculo):
+  (1) renderRentaCard: baños se OMITE si no existe y categoria cae a '—' (mismo patrón del
+  template de venta); (2) modal de producto de renta: misma guarda; (3) línea "Ticket promedio
+  del mix" de Crea tu mezcla: ticket/velocidad/meses/ROI con Number.isFinite → 'N/D' (antes
+  '$NaNM MXN' en estado placeholder). CAUSA RAÍZ: productos_renta del backend no publica
+  banos/categoria y los templates de renta interpolaban sin guarda (el de venta sí guardaba
+  con ||'—'); el mock de Node no lo veía porque los contenedores mb-* son stubs planos fuera
+  del scan por sección del harness.
+- Validación: py_compile OK · node --check OK · verify_reglas 20/20 OK 100% · harness E4
+  dirigido (mocks + estado placeholder de arranque + D2/D3): escaneo de TODOS los elementos
+  LIMPIO ($NaN / undefined baño / >undefined< / $null ausentes) · renderRentaCard con el
+  esquema real del backend SIN banos/categoria → LIMPIO con '—', y CON banos/categoria →
+  renderiza ambos (funcionalidad preservada · regla 5). PENDIENTE POST-PUSH: re-verificación
+  en producción con payload vivo (Contry) desde la página real — mismo método del gate de
+  hoy. Revisada dos veces.
