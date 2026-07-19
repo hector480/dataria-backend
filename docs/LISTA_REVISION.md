@@ -1527,3 +1527,24 @@ verify_all 8/8 + render 10/10 tras el blindaje.
   publicar un % con título falso). PENDIENTE POST-PUSH: regenerar anclas en producción y
   verificar n_primarios=0 con banda, mapa pintando marcadores/capas y N/D de ocupación.
   Revisada dos veces.
+
+## 2026-07-18 · POST-PUSH df61d1f · VERIFICACIÓN EN PRODUCCIÓN + 3 GUARDAS E4 DEL SIMULADOR — [x]
+- Push df61d1f verificado byte a byte (5 archivos) · Render redesplegó · CONTRY EN VIVO 11/11:
+  sets regla dictada operando (criterio presente · n_primarios=0 · lista vacía · degradados
+  con nota_set · 3 sup + 3 inf + 0 N/D = 6 secundarios · 10 directos; 10+0+6 = universo 16),
+  ocupación N/D en 7/7 productos y renta_baseline.occ=null, captable v3/DEM1/banda intactos,
+  sin NaN. MAPA end-to-end en la página real: zaRenderAllSafe resetea leafMap ✓, initMap
+  re-monta ✓ (panes ✓ · 16/16 marcadores · 4 polígonos · botón primarios OCULTO · leyenda
+  nueva ✓). Slider occ deshabilitado ✓ (la duda era la serialización del atributo).
+- La verificación destapó DOS hermanos PREEXISTENTES del mismo defecto E4 en el Simulador de
+  renta (misma especie ya autorizada, "N/D en los espacios que aplique"): r_pm2_lbl
+  interpolaba pm2 null → "$null/m²" (caso real Contry: baseline pm2=null) y r_units_lbl
+  interpolaba units null → "null ud" (zonas sin baseline). GUARDAS aplicadas al patrón
+  autorizado: los 4 sliders (m2/pm2/units/occ) muestran N/D y se deshabilitan sin dato, los
+  res-cards dependientes caen a N/D, y updateRenta ignora thumbs deshabilitados (jamás
+  calcula con el valor de relleno). Nota: units=120 sigue siendo el "supuesto de proyecto
+  típico" del código — el VALOR queda en la mesa para la próxima sesión una-por-una.
+- Validación: node --check OK · verify_reglas 20/20 · plantilla del simulador sin interpolados
+  directos sin guarda (chequeo estático) · tplRenta NUEVA inyectada en la página real de
+  producción con baseline todo-null → LIMPIA (0 tokens rotos, sliders disabled, labels N/D).
+  Los 3 archivos del harness previo no cambiaron. Revisada dos veces.

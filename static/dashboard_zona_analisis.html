@@ -4078,21 +4078,21 @@ function tplRenta(z) {
     <div class="card"><div class="card-header"><div class="card-title">Simulador de sensibilidad · Renta</div><div style="font-size:12px;color:var(--t2);">Ajusta y ve impacto en tiempo real</div></div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:24px;">
         <div>
-          <div class="slider-row"><div class="slider-head"><span>Área interior (m²)</span><span id="r_m2_lbl">${z.renta_baseline.m2} m²</span></div>
-            <input type="range" id="r_m2" min="${Math.max(40,z.renta_baseline.m2-30)}" max="${z.renta_baseline.m2+50}" value="${z.renta_baseline.m2}" step="5" oninput="updateRenta()"></div>
-          <div class="slider-row"><div class="slider-head"><span>Renta $/m²</span><span id="r_pm2_lbl">$${z.renta_baseline.pm2}/m²</span></div>
-            <input type="range" id="r_pm2" min="${Math.max(80,z.renta_baseline.pm2-150)}" max="${z.renta_baseline.pm2+250}" value="${z.renta_baseline.pm2}" step="10" oninput="updateRenta()"></div>
+          <div class="slider-row"><div class="slider-head"><span>Área interior (m²)</span><span id="r_m2_lbl">${z.renta_baseline.m2!=null ? z.renta_baseline.m2+' m²' : 'N/D'}</span></div>
+            <input type="range" id="r_m2" min="${z.renta_baseline.m2!=null?Math.max(40,z.renta_baseline.m2-30):40}" max="${z.renta_baseline.m2!=null?z.renta_baseline.m2+50:90}" value="${z.renta_baseline.m2!=null?z.renta_baseline.m2:40}" step="5" oninput="updateRenta()" ${z.renta_baseline.m2==null?'disabled title="Sin área observada en la base para esta zona"':''}></div>
+          <div class="slider-row"><div class="slider-head"><span>Renta $/m²</span><span id="r_pm2_lbl">${z.renta_baseline.pm2!=null ? '$'+z.renta_baseline.pm2+'/m²' : 'N/D'}</span></div>
+            <input type="range" id="r_pm2" min="${z.renta_baseline.pm2!=null?Math.max(80,z.renta_baseline.pm2-150):80}" max="${z.renta_baseline.pm2!=null?z.renta_baseline.pm2+250:330}" value="${z.renta_baseline.pm2!=null?z.renta_baseline.pm2:80}" step="10" oninput="updateRenta()" ${z.renta_baseline.pm2==null?'disabled title="Sin renta $/m² observada en la base para esta zona"':''}></div>
         </div>
         <div>
-          <div class="slider-row"><div class="slider-head"><span>Total unidades</span><span id="r_units_lbl">${z.renta_baseline.units} ud</span></div>
-            <input type="range" id="r_units" min="30" max="300" value="${z.renta_baseline.units}" step="10" oninput="updateRenta()"></div>
+          <div class="slider-row"><div class="slider-head"><span>Total unidades</span><span id="r_units_lbl">${z.renta_baseline.units!=null ? z.renta_baseline.units+' ud' : 'N/D'}</span></div>
+            <input type="range" id="r_units" min="30" max="300" value="${z.renta_baseline.units!=null?z.renta_baseline.units:30}" step="10" oninput="updateRenta()" ${z.renta_baseline.units==null?'disabled title="Sin baseline de renta en esta zona"':''}></div>
           <div class="slider-row"><div class="slider-head"><span>Ocupación %</span><span id="r_occ_lbl">${z.renta_baseline.occ!=null ? z.renta_baseline.occ+'% observada' : 'N/D'}</span></div>
             <input type="range" id="r_occ" min="60" max="100" value="${z.renta_baseline.occ!=null?z.renta_baseline.occ:80}" step="2" oninput="updateRenta()" ${z.renta_baseline.occ==null?'disabled title="Sin ocupación observada en la capa de renta de la zona"':''}></div>
         </div>
         <div>
-          <div class="res-card"><div class="res-label">Renta mensual/ud</div><div class="res-val" id="r_renta_ud" style="color:var(--purple)">$${(z.renta_baseline.m2*z.renta_baseline.pm2).toLocaleString()}</div></div>
-          <div class="res-card"><div class="res-label">Ingreso mensual proyecto</div><div class="res-val" id="r_ing_bruto" style="color:var(--green)">${z.renta_baseline.occ!=null ? fmtM(z.renta_baseline.m2*z.renta_baseline.pm2*z.renta_baseline.units*z.renta_baseline.occ/100) : 'N/D'}</div></div>
-          <div class="res-card"><div class="res-label">Ingreso anual</div><div class="res-val" id="r_ing_anual" style="color:var(--blue)">${z.renta_baseline.occ!=null ? fmtM(z.renta_baseline.m2*z.renta_baseline.pm2*z.renta_baseline.units*z.renta_baseline.occ*12/100) : 'N/D'}</div></div>
+          <div class="res-card"><div class="res-label">Renta mensual/ud</div><div class="res-val" id="r_renta_ud" style="color:var(--purple)">${(z.renta_baseline.m2!=null&&z.renta_baseline.pm2!=null) ? '$'+(z.renta_baseline.m2*z.renta_baseline.pm2).toLocaleString() : 'N/D'}</div></div>
+          <div class="res-card"><div class="res-label">Ingreso mensual proyecto</div><div class="res-val" id="r_ing_bruto" style="color:var(--green)">${(z.renta_baseline.occ!=null&&z.renta_baseline.m2!=null&&z.renta_baseline.pm2!=null&&z.renta_baseline.units!=null) ? fmtM(z.renta_baseline.m2*z.renta_baseline.pm2*z.renta_baseline.units*z.renta_baseline.occ/100) : 'N/D'}</div></div>
+          <div class="res-card"><div class="res-label">Ingreso anual</div><div class="res-val" id="r_ing_anual" style="color:var(--blue)">${(z.renta_baseline.occ!=null&&z.renta_baseline.m2!=null&&z.renta_baseline.pm2!=null&&z.renta_baseline.units!=null) ? fmtM(z.renta_baseline.m2*z.renta_baseline.pm2*z.renta_baseline.units*z.renta_baseline.occ*12/100) : 'N/D'}</div></div>
         </div>
       </div>
     </div>`;
@@ -5441,19 +5441,23 @@ function initChartsForActivePage() {
 }
 
 function updateRenta(){
-  const m2=parseInt(document.getElementById('r_m2').value);
-  const pm2=parseInt(document.getElementById('r_pm2').value);
-  const units=parseInt(document.getElementById('r_units').value);
-  // Slider deshabilitado = zona sin ocupación observada (18 jul 2026) → montos con occ = N/D
+  // Slider deshabilitado = dato ausente en la base (18 jul 2026) → ese valor es N/D y los
+  // montos que dependan de él también (nunca se calcula con el valor "de relleno" del thumb)
+  const m2El=document.getElementById('r_m2');
+  const m2=(m2El && !m2El.disabled)?parseInt(m2El.value):null;
+  const pm2El=document.getElementById('r_pm2');
+  const pm2=(pm2El && !pm2El.disabled)?parseInt(pm2El.value):null;
+  const unitsEl=document.getElementById('r_units');
+  const units=(unitsEl && !unitsEl.disabled)?parseInt(unitsEl.value):null;
   const occEl=document.getElementById('r_occ');
   const occ=(occEl && !occEl.disabled)?parseInt(occEl.value):null;
-  document.getElementById('r_m2_lbl').textContent=m2+' m²';
-  document.getElementById('r_pm2_lbl').textContent='$'+pm2+'/m²';
-  document.getElementById('r_units_lbl').textContent=units+' ud';
+  document.getElementById('r_m2_lbl').textContent=m2!=null?m2+' m²':'N/D';
+  document.getElementById('r_pm2_lbl').textContent=pm2!=null?'$'+pm2+'/m²':'N/D';
+  document.getElementById('r_units_lbl').textContent=units!=null?units+' ud':'N/D';
   document.getElementById('r_occ_lbl').textContent=occ!=null?occ+'%':'N/D';
-  const renta=m2*pm2;
-  const ing=occ!=null?Math.round(units*renta*occ/100):null;
-  document.getElementById('r_renta_ud').textContent='$'+renta.toLocaleString();
+  const renta=(m2!=null&&pm2!=null)?m2*pm2:null;
+  const ing=(renta!=null&&occ!=null&&units!=null)?Math.round(units*renta*occ/100):null;
+  document.getElementById('r_renta_ud').textContent=renta!=null?'$'+renta.toLocaleString():'N/D';
   document.getElementById('r_ing_bruto').textContent=ing!=null?'$'+(ing/1e6).toFixed(2)+'M':'N/D';
   document.getElementById('r_ing_anual').textContent=ing!=null?'$'+(ing*12/1e6).toFixed(1)+'M':'N/D';
 }
