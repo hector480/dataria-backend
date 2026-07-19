@@ -221,3 +221,12 @@ hotel (prefijo por uso).
 | origenes[i].hogares_di / hogares_di_nota | int/str | (8 jul mañana) hogares reales del DI captable por NSE cuando el KMZ no publica masa |
 | mercado_captable.perfil_captable{commuters_total_dia, distribucion_nse_pct, edad_grupos, ingreso_hogar_mensual, gasto_anual, alcance} | dict | Perfil de commuters: NSE del modelo anclado + edad/ingreso/gasto REALES del XLSX de la corona; dimensión ausente = "N/D" |
 | mercado_captable.columnas_faltantes | list | Columnas del DI que faltaron para el perfil (vacía si nada faltó) |
+
+## Ocupación de renta observada (18 jul 2026 · orden directa de Héctor)
+| Variable | Tipo | Significado |
+|---|---|---|
+| productos_renta[i].ocupacion_target | str | CAMBIO POR ORDEN DE HÉCTOR (18 jul 2026): antes "92%" fijo (marcado 'revisar'); REGLA FINAL = "N/D" siempre — la capa vv_renta no trae ocupación física (su ESTATUS es estado del anuncio, no del edificio; verificado con datos reales). Cuando la base publique ocupación real se conecta en _ocupacion_renta_obs. El contrato del front (string parseable o N/D) se conserva |
+| productos_renta[i].ocupacion_obs_n | int/null | NUEVA · nº de tipologías con estatus que soportan la ocupación observada (transparencia de muestra) |
+| renta_baseline.occ | int/null | CAMBIO (misma orden): antes 90 fijo; REGLA FINAL = null (sin ocupación en la base) → el slider del simulador se muestra deshabilitado con N/D. Se llenará cuando exista el dato real |
+| renta_baseline.occ_fuente / occ_n | str/int | NUEVAS · fuente declarada ("observada · ESTATUS capa renta") y n de la muestra |
+| competidores.directos/secundarios[i].nota_set | str | (ya existía 8 jul) ahora también en ex-primarios degradados: "distinta percepción de valor/NSE (cliente compartido)" — regla dictada tal cual (18 jul) |

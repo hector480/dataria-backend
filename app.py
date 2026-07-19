@@ -3389,6 +3389,17 @@ def _status_label(status: str) -> str:
 
 
 # ──────────────────────── Productos renta (Checkpoint F) ────────────────────────
+def _ocupacion_renta_obs(ft_renta: List[Dict]) -> tuple:
+    """OCUPACIÓN de renta · REGLA FINAL (Héctor · 18 jul 2026): la capa vv_renta NO trae
+    ocupación física de edificios. Su campo ESTATUS es estado del ANUNCIO del levantamiento
+    ('Comparable' = activo · 'No disponible' = retirado/rentado · vacío = el equipo de campo
+    no obtuvo el dato) — verificado contra datos reales (ZMM: 336/55/22). Convertir eso en
+    "ocupación" daría un % con título falso. Regla dictada: mostrar N/D en los espacios que
+    apliquen. Muere el 92% hardcodeado (y el 90 del simulador). Cuando la base publique
+    ocupación real, se conecta en esta función sin tocar nada más."""
+    return (None, 0)
+
+
 def derive_productos_renta(ft_renta: List[Dict], segments: List[Dict]) -> List[Dict[str, Any]]:
     """
     Productos de renta derivados de los segments DPO. Para cada bucket con mercado de renta:
@@ -3460,6 +3471,8 @@ def derive_productos_renta(ft_renta: List[Dict], segments: List[Dict]) -> List[D
         if ap and 25 <= ap <= 500 and pr and pr > 1000:
             pm2_renta_obs.append(pr / ap)
     pm2_renta_zona = round(statistics.median(pm2_renta_obs)) if pm2_renta_obs else None
+    # Ocupación observada de la zona (ESTATUS de la capa · regla del 18 jul 2026)
+    ocupacion_obs, ocupacion_obs_n = _ocupacion_renta_obs(ft_renta)
     # Respaldo del ancla: si F___M2 no dio banda, usar la banda del cociente observado.
     if p10_obs is None and pm2_renta_obs:
         _st_obs = _stats_robustas(pm2_renta_obs)
@@ -3514,7 +3527,8 @@ def derive_productos_renta(ft_renta: List[Dict], segments: List[Dict]) -> List[D
             "pm2_renta": f"${pm2_renta:,}/m²/mes" if pm2_renta else "N/D",
             "renta_ud": f"${round(renta_mid):,}/mes" if renta_mid else "N/D",
             "abs_renta": f"{abs_renta} contratos/mes" if abs_renta else "N/D",
-            "ocupacion_target": "92%",
+            "ocupacion_target": (f"{ocupacion_obs}%" if ocupacion_obs is not None else "N/D"),
+            "ocupacion_obs_n": (ocupacion_obs_n or None),
             "status": s.get("status", "atendido"),
             "recomendado": (s.get("aplicable", True) and aplicable_obs
                             and s.get("status") in ("sweet_spot", "desatendido", "oportunidad", "atendido")),
@@ -4921,10 +4935,16 @@ def assemble_zone_payload(req, profile, isocronas, resumen, ft, pagos, resumen_r
             pn = _re.findall(r"[\d,]+", sweet["pm2_renta"])
             if pn:
                 rb_pm2 = int(pn[0].replace(",", ""))
+    # occ del simulador = ocupación OBSERVADA de la zona (Héctor · 18 jul 2026); sin dato
+    # en la capa → None y el slider del front se muestra deshabilitado con N/D (nunca el
+    # 90 inventado que arrancaba el escenario).
+    _rb_occ, _rb_occ_n = _ocupacion_renta_obs(ft_renta)
     renta_baseline = {
         "m2": rb_m2, "pm2": rb_pm2,
         "units": 120 if rb_m2 else None,   # supuesto de proyecto típico para el simulador
-        "occ": 90 if rb_m2 else None,
+        "occ": (_rb_occ if rb_m2 else None),
+        "occ_fuente": ("observada · ESTATUS capa renta" if _rb_occ is not None else None),
+        "occ_n": (_rb_occ_n or None),
     }
 
     # Isócronas como GeoJSON (para que el tablero pinte los anillos)
@@ -6647,13 +6667,21 @@ async def zona_procesar(req: ZonaRequest):
             for c in (competidores.get("primarios") or []):
                 if _es_directo(c):
                     promovidos.append(c)
-            competidores["primarios"] = [c for c in (competidores.get("primarios") or [])
-                                         if c not in promovidos]
+            # REGLA DICTADA "tal cual" (Héctor · 18 jul 2026, ratifica la del 8 jul): estar
+            # dentro de la isócrona con OTRA percepción/NSE = SECUNDARIO. Aplica a TODO el
+            # anillo primario, no solo al morado: los primarios sin la banda también se
+            # degradan, y el set "primarios" queda VACÍO por construcción cuando hay banda
+            # de percepción. (Sin banda no hay dato para juzgar percepción → se conservan
+            # los sets geométricos, declarado por la ausencia de criterio_directos.)
+            for c in (competidores.get("primarios") or []):
+                if c not in promovidos:
+                    degradados.append(c)
             for c in degradados:
                 c["set_competidor"] = "secundario"
                 c["nota_set"] = "distinta percepción de valor/NSE (cliente compartido)"
             for c in promovidos:
                 c["set_competidor"] = "directo"
+            competidores["primarios"] = []
             competidores["directos"] = nuevos_dir + promovidos
             competidores["secundarios"] = (competidores.get("secundarios") or []) + degradados
             competidores["n_directos"] = len(competidores["directos"])

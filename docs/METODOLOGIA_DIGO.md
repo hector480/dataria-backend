@@ -191,3 +191,20 @@ que la herramienta productiza):
 | G8 | Modelos de pronóstico | TCA lineal hoy; faltan métodos gaussianos/no gaussianos y Huff (comercio/conveniencia). |
 | G9 | Metaproducto | Amenidades/acabados/extras por perfil: backend aún no entrega amenidades procesadas. |
 | G10 | Usos nuevos | lotes, industrial, logística, oficinas/CC, hotel: declarados, sin pipeline. |
+
+---
+
+## 10. PARÁMETROS DEL MÉTODO (ratificados por Héctor · 18 jul 2026, sesión una-por-una)
+Estos parámetros dejaron de ser decisiones invisibles de implementación: Héctor los revisó
+uno por uno y quedaron así. Cambiarlos requiere nueva confirmación.
+
+| Parámetro | Valor ratificado | Estándar/nota |
+|---|---|---|
+| Fuente de isócronas | **Orden de prioridad: Predik → Valhalla → (ORS/TomTom con llave)**, front limpio (sin etiqueta de fuente en pantalla; declarada en el dato interno). "Mediana multi-fuente" queda como opción futura: requiere diseño y checkpoint antes de implementarse | El método dicta Predik; el respaldo opera solo ante falla |
+| Sets de competidores | **Regla dictada TAL CUAL**: dentro de la isócrona con OTRA percepción/NSE = SECUNDARIO (aplica a todo el anillo primario, no solo al morado). DIRECTO = banda de percepción + bloque NSE + isócrona primaria. El set "primarios" queda vacío por construcción cuando hay banda y el tablero lo oculta; sin banda evaluable se conservan los sets geométricos | Percepción/NSE mandan sobre geometría |
+| Banda de comparables | mediana **± 2·MAD** (fallback ±15% sin MAD) | Estadística robusta estándar (~±1.35σ) |
+| Muestra mínima de zona | **15** proyectos; menos → ampliación 8→14 min DECLARADA | Configurable (DATARIA_ZONA_MUESTRA_MIN) |
+| Bloque NSE compatible | **±1 nivel** de NSE | Implementa "D no es compatible con C" |
+| Capa mapa $/m² | bajo < **P25** · medio P25–P75 · alto > **P75** de lo observado en la zona | RES-2 (nunca promedios) |
+| Corona captable | anillo principal **+10 min** (tope 30) · gravedad exponente **2.0** | Ortúzar & Willumsen / modelo gravitacional estándar |
+| Ocupación de renta | **N/D SIEMPRE (regla final)**: la capa vv_renta no trae ocupación física — su ESTATUS es estado del ANUNCIO ('Comparable' activo · 'No disponible' retirado/rentado · vacío = el equipo de campo no obtuvo el dato; verificado ZMM 336/55/22). Todo lo dependiente muestra N/D; mueren el 92% y el 90 hardcodeados; el slider de escenario queda deshabilitado (el usuario puede fijar ocupación solo en el slider de SENSIBILIDAD, que es escenario explícito). Candidato: pedir ocupación real al equipo de base | N/D = el equipo de campo no obtuvo el dato (semántica de la base confirmada por Héctor) |

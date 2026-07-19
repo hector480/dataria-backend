@@ -1796,20 +1796,22 @@ function tplMapa(z) {
   const tieneSets = V.universo_proyectos && V.universo_proyectos.length;
   const nDir = V.n_directos||0, nPri = V.n_primarios||0, nSec = V.n_secundarios||0;
   const total = tieneSets ? (nDir+nPri+nSec) : z.proyectos.length;
+  const btnPri = nPri>0 ? `
+      <button class="mf-btn" onclick="filterMap('primario',this)" style="border-color:rgba(5,64,242,.4);">Primarios (${nPri})</button>` : '';
   const filtros = tieneSets ? `
       <button class="mf-btn on" onclick="filterMap('all',this)">Todos (${total})</button>
-      <button class="mf-btn" onclick="filterMap('directo',this)" style="border-color:rgba(139,92,246,.4);">Directos (${nDir})</button>
-      <button class="mf-btn" onclick="filterMap('primario',this)" style="border-color:rgba(5,64,242,.4);">Primarios (${nPri})</button>
+      <button class="mf-btn" onclick="filterMap('directo',this)" style="border-color:rgba(139,92,246,.4);">Directos (${nDir})</button>${btnPri}
       <button class="mf-btn" onclick="filterMap('secundario',this)" style="border-color:rgba(0,181,100,.4);">Secundarios (${nSec})</button>`
     : `
       <button class="mf-btn on" onclick="filterMap('all',this)">Todos (${total})</button>
       <button class="mf-btn" onclick="filterMap('alta',this)">Alta absorción &gt;4</button>
       <button class="mf-btn" onclick="filterMap('media',this)">Media 2–4</button>
       <button class="mf-btn" onclick="filterMap('baja',this)">Baja &lt;2</button>`;
+  const legPri = nPri>0 ? `
+      <div class="legend-item"><div class="legend-dot" style="background:#0540F2"></div>Primarios · anillo primario (banda de percepción no evaluable en esta zona)</div>` : '';
   const leyenda = tieneSets ? `
-      <div class="legend-item"><div class="legend-dot" style="background:#8B5CF6"></div>Directos · mercado del predio (oferta a comparar)</div>
-      <div class="legend-item"><div class="legend-dot" style="background:#0540F2"></div>Primarios · zona 8 min</div>
-      <div class="legend-item"><div class="legend-dot" style="background:#00B564"></div>Secundarios · zona ampliada (genera demanda)</div>`
+      <div class="legend-item"><div class="legend-dot" style="background:#8B5CF6"></div>Directos · comparten tu banda de percepción de valor y NSE (mercado del predio)</div>${legPri}
+      <div class="legend-item"><div class="legend-dot" style="background:#00B564"></div>Secundarios · dentro del área analizada con otra percepción de valor (superior / inferior)</div>`
     : `
       <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div>Alta absorción &gt;4 un/mes</div>
       <div class="legend-item"><div class="legend-dot" style="background:var(--blue)"></div>Absorción media 2–4 un/mes</div>
@@ -4084,13 +4086,13 @@ function tplRenta(z) {
         <div>
           <div class="slider-row"><div class="slider-head"><span>Total unidades</span><span id="r_units_lbl">${z.renta_baseline.units} ud</span></div>
             <input type="range" id="r_units" min="30" max="300" value="${z.renta_baseline.units}" step="10" oninput="updateRenta()"></div>
-          <div class="slider-row"><div class="slider-head"><span>Ocupación %</span><span id="r_occ_lbl">${z.renta_baseline.occ}%</span></div>
-            <input type="range" id="r_occ" min="60" max="100" value="${z.renta_baseline.occ}" step="2" oninput="updateRenta()"></div>
+          <div class="slider-row"><div class="slider-head"><span>Ocupación %</span><span id="r_occ_lbl">${z.renta_baseline.occ!=null ? z.renta_baseline.occ+'% observada' : 'N/D'}</span></div>
+            <input type="range" id="r_occ" min="60" max="100" value="${z.renta_baseline.occ!=null?z.renta_baseline.occ:80}" step="2" oninput="updateRenta()" ${z.renta_baseline.occ==null?'disabled title="Sin ocupación observada en la capa de renta de la zona"':''}></div>
         </div>
         <div>
           <div class="res-card"><div class="res-label">Renta mensual/ud</div><div class="res-val" id="r_renta_ud" style="color:var(--purple)">$${(z.renta_baseline.m2*z.renta_baseline.pm2).toLocaleString()}</div></div>
-          <div class="res-card"><div class="res-label">Ingreso mensual proyecto</div><div class="res-val" id="r_ing_bruto" style="color:var(--green)">${fmtM(z.renta_baseline.m2*z.renta_baseline.pm2*z.renta_baseline.units*z.renta_baseline.occ/100)}</div></div>
-          <div class="res-card"><div class="res-label">Ingreso anual</div><div class="res-val" id="r_ing_anual" style="color:var(--blue)">${fmtM(z.renta_baseline.m2*z.renta_baseline.pm2*z.renta_baseline.units*z.renta_baseline.occ*12/100)}</div></div>
+          <div class="res-card"><div class="res-label">Ingreso mensual proyecto</div><div class="res-val" id="r_ing_bruto" style="color:var(--green)">${z.renta_baseline.occ!=null ? fmtM(z.renta_baseline.m2*z.renta_baseline.pm2*z.renta_baseline.units*z.renta_baseline.occ/100) : 'N/D'}</div></div>
+          <div class="res-card"><div class="res-label">Ingreso anual</div><div class="res-val" id="r_ing_anual" style="color:var(--blue)">${z.renta_baseline.occ!=null ? fmtM(z.renta_baseline.m2*z.renta_baseline.pm2*z.renta_baseline.units*z.renta_baseline.occ*12/100) : 'N/D'}</div></div>
         </div>
       </div>
     </div>`;
@@ -5442,16 +5444,18 @@ function updateRenta(){
   const m2=parseInt(document.getElementById('r_m2').value);
   const pm2=parseInt(document.getElementById('r_pm2').value);
   const units=parseInt(document.getElementById('r_units').value);
-  const occ=parseInt(document.getElementById('r_occ').value);
+  // Slider deshabilitado = zona sin ocupación observada (18 jul 2026) → montos con occ = N/D
+  const occEl=document.getElementById('r_occ');
+  const occ=(occEl && !occEl.disabled)?parseInt(occEl.value):null;
   document.getElementById('r_m2_lbl').textContent=m2+' m²';
   document.getElementById('r_pm2_lbl').textContent='$'+pm2+'/m²';
   document.getElementById('r_units_lbl').textContent=units+' ud';
-  document.getElementById('r_occ_lbl').textContent=occ+'%';
+  document.getElementById('r_occ_lbl').textContent=occ!=null?occ+'%':'N/D';
   const renta=m2*pm2;
-  const ing=Math.round(units*renta*occ/100);
+  const ing=occ!=null?Math.round(units*renta*occ/100):null;
   document.getElementById('r_renta_ud').textContent='$'+renta.toLocaleString();
-  document.getElementById('r_ing_bruto').textContent='$'+(ing/1e6).toFixed(2)+'M';
-  document.getElementById('r_ing_anual').textContent='$'+(ing*12/1e6).toFixed(1)+'M';
+  document.getElementById('r_ing_bruto').textContent=ing!=null?'$'+(ing/1e6).toFixed(2)+'M':'N/D';
+  document.getElementById('r_ing_anual').textContent=ing!=null?'$'+(ing*12/1e6).toFixed(1)+'M':'N/D';
 }
 
 function updateSensi(){
@@ -5632,7 +5636,10 @@ function getDemandDrivenRentaProducts(captureRate) {
     const pm2_num = parseInt(String(p.pm2_renta).replace(/[^\d]/g,'')) || 0;
     const renta_num = parseInt(String(p.renta_ud).replace(/[^\d]/g,'')) || 0;
     const abs_num = parseFloat(String(p.abs_renta).replace(/[^\d.]/g,'')) || 0;
-    const occ = parseInt(String(p.ocupacion_target).replace(/[^\d]/g,'')) || 90;
+    // Ocupación OBSERVADA o null (18 jul 2026): con "N/D" NO se inventa un 90 — los montos
+    // dependientes de ocupación se muestran N/D aguas abajo.
+    const occParsed = parseInt(String(p.ocupacion_target).replace(/[^\d]/g,''));
+    const occ = (Number.isFinite(occParsed) && occParsed > 0) ? occParsed : null;
     return {
       ...p,
       _m2: m2_num,
@@ -5641,7 +5648,7 @@ function getDemandDrivenRentaProducts(captureRate) {
       _abs_renta: abs_num,
       _abs_capture: abs_num * captureRate,
       _occ: occ,
-      _renta_anual_ud: renta_num * 12 * (occ/100),
+      _renta_anual_ud: occ!=null ? renta_num * 12 * (occ/100) : null,
     };
   });
 }
@@ -5895,9 +5902,15 @@ function renderAllRentaModes() {
 }
 
 /* ════════ RENDER · CARD HELPER (rental version) ════════ */
+/* Ocupación OBSERVADA (Héctor · 18 jul 2026): _occ=null cuando la capa de renta no trae
+   ESTATUS ('No disponible'=rentada). Los montos que dependen de la ocupación se muestran
+   N/D — NUNCA se calculan con un porcentaje inventado. */
+function mixOccNulo(mix){ return mix.some(m => m.p._occ == null); }
+function mixIngresoAnual(mix){ return mixOccNulo(mix) ? null : mix.reduce((s,m)=> s + m.units*m.p._renta_ud*(m.p._occ/100)*12, 0); }
+function fmtMoND(v){ return v==null ? 'N/D' : fmtM(v); }
 function renderRentaCard(p, units, container) {
-  const monthlyRent = units * p._renta_ud * (p._occ/100);
-  const annualRent = monthlyRent * 12;
+  const monthlyRent = p._occ!=null ? units * p._renta_ud * (p._occ/100) : null;
+  const annualRent = monthlyRent!=null ? monthlyRent * 12 : null;
   const totalM2 = units * p._m2;
   const monthsToFill = p._abs_capture > 0 ? (units / p._abs_capture).toFixed(1) : '—';
   const featuredStyle = p.featured ? 'border-left:3px solid var(--purple);' : '';
@@ -5917,7 +5930,7 @@ function renderRentaCard(p, units, container) {
         <div><div style="color:var(--t3);font-size:12px;text-transform:uppercase;letter-spacing:.5px;">Unidades</div><div style="color:var(--purple);font-weight:700;font-size:14px;">${units}</div></div>
         <div><div style="color:var(--t3);font-size:12px;text-transform:uppercase;letter-spacing:.5px;">$/m² renta</div><div style="color:var(--t1);font-weight:600;">${p.pm2_renta}</div></div>
         <div><div style="color:var(--t3);font-size:12px;text-transform:uppercase;letter-spacing:.5px;">Renta/ud/mes</div><div style="color:var(--t1);font-weight:600;">${p.renta_ud}</div></div>
-        <div><div style="color:var(--t3);font-size:12px;text-transform:uppercase;letter-spacing:.5px;">Ingreso anual</div><div style="color:var(--green);font-weight:700;">${fmtM(annualRent)}</div></div>
+        <div><div style="color:var(--t3);font-size:12px;text-transform:uppercase;letter-spacing:.5px;">Ingreso anual</div><div style="color:var(--green);font-weight:700;">${fmtMoND(annualRent)}</div></div>
         <div><div style="color:var(--t3);font-size:12px;text-transform:uppercase;letter-spacing:.5px;">Lease-up</div><div style="color:var(--blue);font-weight:600;">${monthsToFill} m</div></div>
       </div>
       <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--b0);display:grid;grid-template-columns:1fr 1fr;gap:14px;font-size:12px;color:var(--t2);">
@@ -5949,16 +5962,16 @@ function renderMixRentaPeriodo() {
   }).filter(x => x.units > 0);
 
   const totalUnits = mix.reduce((s,m) => s+m.units, 0);
-  const totalAnnualRent = mix.reduce((s,m) => s + m.units * m.p._renta_ud * (m.p._occ/100) * 12, 0);
+  const totalAnnualRent = mixIngresoAnual(mix);
   const totalM2 = mix.reduce((s,m) => s + m.units * m.p._m2, 0);
-  const avgOcc = mix.length ? mix.reduce((s,m)=>s+m.p._occ*m.units,0)/totalUnits : 0;
+  const avgOcc = (mix.length && !mixOccNulo(mix)) ? mix.reduce((s,m)=>s+m.p._occ*m.units,0)/totalUnits : null;
 
   c.innerHTML = `
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px;">
       <div class="res-card"><div class="res-label">Unidades totales</div><div class="res-val" style="color:var(--purple);">${totalUnits}</div></div>
       <div class="res-card"><div class="res-label">m² rentables</div><div class="res-val" style="color:var(--blue);">${fmtN(Math.round(totalM2))}</div></div>
-      <div class="res-card"><div class="res-label">Ingreso anual estabilizado</div><div class="res-val" style="color:var(--green);">${fmtM(totalAnnualRent)}</div></div>
-      <div class="res-card"><div class="res-label">Ocupación ponderada</div><div class="res-val" style="color:var(--bronze-light);">${avgOcc.toFixed(0)}%</div></div>
+      <div class="res-card"><div class="res-label">Ingreso anual estabilizado</div><div class="res-val" style="color:var(--green);">${fmtMoND(totalAnnualRent)}</div></div>
+      <div class="res-card"><div class="res-label">Ocupación ponderada</div><div class="res-val" style="color:var(--bronze-light);">${avgOcc!=null ? avgOcc.toFixed(0)+'%' : 'N/D'}</div></div>
     </div>
     ${mix.map(m => renderRentaCard(m.p, m.units)).join('')}
   `;
@@ -5972,7 +5985,7 @@ function buildRecommendationMixRenta() {
 
   const enriched = all.map(p => ({
     ...p,
-    _annualRevPerUnit: p._renta_ud * (p._occ/100) * 12
+    _annualRevPerUnit: p._occ!=null ? p._renta_ud * (p._occ/100) * 12 : null
   }));
 
   const qualified = enriched.filter(p =>
@@ -6044,13 +6057,13 @@ function renderMixRentaUnidades() {
 
   const totalU = mix.reduce((s,m) => s + m.units, 0);
   const months = totalU / totalAbs;
-  const totalAnnual = mix.reduce((s,m) => s + m.units * m.p._renta_ud * (m.p._occ/100) * 12, 0);
+  const totalAnnual = mixIngresoAnual(mix);
 
   c.innerHTML = `
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
       <div class="res-card"><div class="res-label">Lease-up estimado</div><div class="res-val" style="color:var(--purple);">${months.toFixed(1)} m</div></div>
       <div class="res-card"><div class="res-label">Unidades distribuidas</div><div class="res-val" style="color:var(--blue);">${totalU}</div></div>
-      <div class="res-card"><div class="res-label">Ingreso anual estabilizado</div><div class="res-val" style="color:var(--green);">${fmtM(totalAnnual)}</div></div>
+      <div class="res-card"><div class="res-label">Ingreso anual estabilizado</div><div class="res-val" style="color:var(--green);">${fmtMoND(totalAnnual)}</div></div>
     </div>
     ${mix.map(m => renderRentaCard(m.p, m.units)).join('')}
   `;
@@ -6071,15 +6084,15 @@ function renderMixRentaPerfil() {
   const totalAbs = products.reduce((s,p) => s + p._abs_capture, 0);
   const mix = products.map(p => ({
     p, units: Math.max(1, Math.round(targetU * (totalAbs > 0 ? p._abs_capture/totalAbs : 1/products.length)))
-  })).sort((a,b) => (b.p._renta_ud * (b.p._occ/100)) - (a.p._renta_ud * (a.p._occ/100)));
+  })).sort((a,b) => (b.p._renta_ud * ((b.p._occ??100)/100)) - (a.p._renta_ud * ((a.p._occ??100)/100)));
 
-  const totalAnnual = mix.reduce((s,m) => s + m.units * m.p._renta_ud * (m.p._occ/100) * 12, 0);
+  const totalAnnual = mixIngresoAnual(mix);
 
   c.innerHTML = `
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
       <div class="res-card"><div class="res-label">Productos compatibles</div><div class="res-val" style="color:var(--purple);">${mix.length}</div></div>
       <div class="res-card"><div class="res-label">Unidades</div><div class="res-val" style="color:var(--blue);">${mix.reduce((s,m)=>s+m.units,0)}</div></div>
-      <div class="res-card"><div class="res-label">Ingreso anual estabilizado</div><div class="res-val" style="color:var(--green);">${fmtM(totalAnnual)}</div></div>
+      <div class="res-card"><div class="res-label">Ingreso anual estabilizado</div><div class="res-val" style="color:var(--green);">${fmtMoND(totalAnnual)}</div></div>
     </div>
     ${mix.map(m => renderRentaCard(m.p, m.units)).join('')}
   `;
@@ -6172,13 +6185,13 @@ function renderManualMixRenta() {
       return p ? {p, units: m.units} : null;
     }).filter(Boolean);
     const totalU = mix.reduce((s,m)=>s+m.units,0);
-    const totalAnnual = mix.reduce((s,m)=>s + m.units * m.p._renta_ud * (m.p._occ/100) * 12, 0);
+    const totalAnnual = mixIngresoAnual(mix);
     const totalM2 = mix.reduce((s,m)=>s + m.units * m.p._m2, 0);
     results.innerHTML = `
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px;margin-bottom:10px;">
         <div class="res-card"><div class="res-label">Total unidades</div><div class="res-val" style="color:var(--purple);">${totalU}</div></div>
         <div class="res-card"><div class="res-label">m² rentables</div><div class="res-val" style="color:var(--blue);">${fmtN(Math.round(totalM2))}</div></div>
-        <div class="res-card"><div class="res-label">Ingreso anual</div><div class="res-val" style="color:var(--green);">${fmtM(totalAnnual)}</div></div>
+        <div class="res-card"><div class="res-label">Ingreso anual</div><div class="res-val" style="color:var(--green);">${fmtMoND(totalAnnual)}</div></div>
         <div class="res-card"><div class="res-label">Productos en mezcla</div><div class="res-val" style="color:var(--bronze-light);">${mix.length}</div></div>
       </div>
       ${mix.map(m => renderRentaCard(m.p, m.units)).join('')}
@@ -6247,13 +6260,14 @@ function renderMixRentaSensitivity() {
 
   const elasticity = -0.8;  // elasticity of occupancy with rental price
   const baseTotalU = mix.reduce((s,m) => s + m.units, 0);
-  const baseAnnualRent = mix.reduce((s,m) => s + m.units * m.p._renta_ud * (m.p._occ/100) * 12, 0);
+  const baseAnnualRent = mixIngresoAnual(mix);
   const baseAvgPm2 = mix.reduce((s,m) => s + m.p._pm2_renta * m.units, 0) / Math.max(baseTotalU,1);
   const baseAvgM2 = mix.reduce((s,m) => s + m.p._m2 * m.units, 0) / Math.max(baseTotalU,1);
-  const baseAvgOcc = mix.reduce((s,m) => s + m.p._occ * m.units, 0) / Math.max(baseTotalU,1);
+  const baseAvgOcc = mixOccNulo(mix) ? null : mix.reduce((s,m) => s + m.p._occ * m.units, 0) / Math.max(baseTotalU,1);
 
-  // Adjusted
-  let adjU = 0, adjAnnual = 0, adjM2 = 0;
+  // Adjusted · si un producto no trae ocupación observada y el usuario NO fijó el slider
+  // (override=100 = "sin cambio"), su ingreso no se calcula: N/D (regla 18 jul 2026).
+  let adjU = 0, adjAnnual = 0, adjM2 = 0, adjAnnualNulo = false;
   const adjMix = mix.map(m => {
     const newM2 = m.p._m2 * areaMul;
     const newPm2 = m.p._pm2_renta * priceMul;
@@ -6261,27 +6275,29 @@ function renderMixRentaSensitivity() {
     // Occupancy elasticity to price
     const occImpact = Math.pow(priceMul, elasticity);
     const baseOcc = (occOverride === 100) ? m.p._occ : occOverride;
-    const newOcc = Math.min(100, Math.max(50, baseOcc * occImpact));
+    const newOcc = baseOcc!=null ? Math.min(100, Math.max(50, baseOcc * occImpact)) : null;
     const newUnits = Math.max(1, Math.round(m.units * scaleMul));
-    const annual = newUnits * newRentaUd * (newOcc/100) * 12;
-    adjU += newUnits; adjAnnual += annual; adjM2 += newUnits * newM2;
+    const annual = newOcc!=null ? newUnits * newRentaUd * (newOcc/100) * 12 : null;
+    adjU += newUnits; adjM2 += newUnits * newM2;
+    if (annual==null) { adjAnnualNulo = true; } else { adjAnnual += annual; }
     return {p: m.p, newUnits, newRentaUd, newPm2, newM2, newOcc, annual};
   });
+  if (adjAnnualNulo) adjAnnual = null;
 
   document.getElementById('msr_price_data').innerHTML = `<span>$/m² base: <strong style="color:var(--t1);">$${Math.round(baseAvgPm2)}</strong></span><span>→ ajustado: <strong style="color:var(--purple);">$${Math.round(baseAvgPm2*priceMul)}</strong></span>`;
   document.getElementById('msr_area_data').innerHTML  = `<span>m² base: <strong style="color:var(--t1);">${baseAvgM2.toFixed(1)}</strong></span><span>→ ajustado: <strong style="color:var(--purple);">${(baseAvgM2*areaMul).toFixed(1)}</strong></span>`;
-  document.getElementById('msr_occ_data').innerHTML   = `<span>Occ base: <strong style="color:var(--t1);">${baseAvgOcc.toFixed(0)}%</strong></span><span>→ ajustada: <strong style="color:var(--purple);">${occOverride}%</strong></span>`;
+  document.getElementById('msr_occ_data').innerHTML   = `<span>Occ base: <strong style="color:var(--t1);">${baseAvgOcc!=null ? baseAvgOcc.toFixed(0)+'%' : 'N/D'}</strong></span><span>→ ajustada: <strong style="color:var(--purple);">${occOverride}%</strong></span>`;
   document.getElementById('msr_scale_data').innerHTML = `<span>Unidades base: <strong style="color:var(--t1);">${baseTotalU}</strong></span><span>→ ajustadas: <strong style="color:var(--purple);">${adjU}</strong></span>`;
 
-  const delta = adjAnnual - baseAnnualRent;
-  const deltaPct = baseAnnualRent ? (delta/baseAnnualRent*100) : 0;
-  const deltaColor = delta >= 0 ? 'var(--green)' : '#ef4444';
+  const delta = (adjAnnual!=null && baseAnnualRent!=null) ? adjAnnual - baseAnnualRent : null;
+  const deltaPct = (delta!=null && baseAnnualRent) ? (delta/baseAnnualRent*100) : null;
+  const deltaColor = (delta==null || delta >= 0) ? 'var(--green)' : '#ef4444';
   document.getElementById('msr_results').innerHTML = `
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px;">
-      <div class="res-card"><div class="res-label">Ingreso anual base</div><div class="res-val" style="color:var(--t1);">${fmtM(baseAnnualRent)}</div></div>
-      <div class="res-card"><div class="res-label">Ingreso anual ajustado</div><div class="res-val" style="color:var(--purple);">${fmtM(adjAnnual)}</div></div>
-      <div class="res-card"><div class="res-label">Δ Absoluto</div><div class="res-val" style="color:${deltaColor};">${(delta>=0?'+':'')}${fmtM(Math.abs(delta))}</div></div>
-      <div class="res-card"><div class="res-label">Δ %</div><div class="res-val" style="color:${deltaColor};">${(deltaPct>=0?'+':'')}${deltaPct.toFixed(1)}%</div></div>
+      <div class="res-card"><div class="res-label">Ingreso anual base</div><div class="res-val" style="color:var(--t1);">${fmtMoND(baseAnnualRent)}</div></div>
+      <div class="res-card"><div class="res-label">Ingreso anual ajustado</div><div class="res-val" style="color:var(--purple);">${fmtMoND(adjAnnual)}</div></div>
+      <div class="res-card"><div class="res-label">Δ Absoluto</div><div class="res-val" style="color:${deltaColor};">${delta!=null ? ((delta>=0?'+':'')+fmtM(Math.abs(delta))) : 'N/D'}</div></div>
+      <div class="res-card"><div class="res-label">Δ %</div><div class="res-val" style="color:${deltaColor};">${deltaPct!=null ? ((deltaPct>=0?'+':'')+deltaPct.toFixed(1)+'%') : 'N/D'}</div></div>
     </div>
   `;
 }
@@ -7138,6 +7154,15 @@ function zaRenderAllSafe(){
       // usuario ya capturó → el mapa "desaparecía" al procesar/cambiar de zona. Se preserva.
       if(pid === 'page-zona-analisis' && el.innerHTML.trim() !== '') continue;
       el.innerHTML = tpl(z);
+      // FIX MAPA (Héctor · 18 jul 2026): re-inyectar la sección Mapa destruye el div donde
+      // Leaflet estaba montado; si el handle no se resetea, el hook de navegación cree que
+      // el mapa sigue vivo (sobre un nodo muerto) y la sección queda vacía para siempre.
+      if(pid === 'page-mapa'){
+        try{ if(typeof leafMap!=='undefined' && leafMap){ leafMap.remove(); } }catch(e){}
+        try{ leafMap = null; mapMarkers = []; }catch(e){}
+        try{ if(typeof MAPA_CAPAS!=='undefined'){ MAPA_CAPAS.nse=null; MAPA_CAPAS.pv=null; } }catch(e){}
+        try{ tileLayer = null; }catch(e){}
+      }
     }catch(e){
       const el = document.getElementById(pid);
       if(el && pid !== 'page-zona-analisis') el.innerHTML = '<div class="page-header"><div class="page-title">Sección sin datos suficientes</div>'+

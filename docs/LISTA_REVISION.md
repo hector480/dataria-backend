@@ -1484,3 +1484,46 @@ verify_all 8/8 + render 10/10 tras el blindaje.
   renderiza ambos (funcionalidad preservada · regla 5). PENDIENTE POST-PUSH: re-verificación
   en producción con payload vivo (Contry) desde la página real — mismo método del gate de
   hoy. Revisada dos veces.
+
+## 2026-07-18 · LOTE "SESIÓN UNA-POR-UNA" (7 decisiones dictadas por Héctor) — [x] HECHO Y VALIDADO
+- Auditoría método-vs-código-vs-pantalla previa (las 5 preguntas de Héctor) → decisiones:
+  (1) FIX MAPA (ciclo de vida): zaRenderAllSafe ahora destruye/resetea leafMap + mapMarkers +
+  MAPA_CAPAS + tileLayer al re-inyectar page-mapa; el hook de navegación re-monta el mapa con
+  los datos vigentes. CAUSA RAÍZ: handle de Leaflet apuntando a nodo destruido tras procesar
+  la zona (los 28 comparables de Saltillo traían coords al 100% — era armado de pantalla, no
+  falta de datos).
+  (2) SETS · REGLA DICTADA TAL CUAL: "dentro de la isócrona con OTRA percepción/NSE =
+  SECUNDARIO" aplica ahora a TODO el anillo primario (antes solo al morado); los ex-primarios
+  degradados llevan nota_set; el set "primarios" queda VACÍO por construcción cuando hay
+  banda y el tablero lo oculta (botón y leyenda condicionales); sin banda evaluable se
+  conservan los sets geométricos (declarado por ausencia de criterio_directos).
+  (3) ISÓCRONAS: front limpio se MANTIENE + orden de prioridad formalizado
+  Predik → Valhalla → (ORS/TomTom con llave) en METODOLOGIA §10; "mediana multi-fuente"
+  anotada como opción futura (requiere diseño + checkpoint).
+  (4) OCUPACIÓN DE RENTA · REGLA FINAL tras verificar datos REALES: la capa vv_renta NO trae
+  ocupación física — su ESTATUS es estado del ANUNCIO ('Comparable' 336 · 'No disponible' 55
+  · vacío 22 en ZMM; Gpe 7/0/11; vacío = el equipo de campo no obtuvo el dato, semántica
+  confirmada por Héctor) → N/D en todos los espacios que apliquen: mueren el 92% de productos
+  Y el 90 del simulador Y el fallback silencioso ||90 del front; slider del simulador
+  deshabilitado con nota; ingreso estabilizado / ocupación ponderada / Δ de sensibilidad
+  muestran N/D (el slider de SENSIBILIDAD sigue permitiendo fijar ocupación: escenario
+  explícito del usuario). Candidato: pedir la ocupación real al equipo de base. La conexión
+  futura queda lista en _ocupacion_renta_obs sin tocar nada más.
+  (5) CONSTANTES RATIFICADAS y documentadas en METODOLOGIA_DIGO.md §10: banda mediana±2·MAD
+  (fallback ±15%), muestra mínima 15 con ampliación declarada, bloque NSE ±1, capa mapa
+  P25/P75, corona captable +10 min (tope 30) · exponente 2.0.
+  (6) LEYENDA DEL MAPA actualizada a la regla vigente (directos = tu banda+NSE; secundarios =
+  otra percepción superior/inferior); el etiquetado de bandas $/m² en capa/comparables/ZA-6
+  quedó PENDIENTE por decisión de Héctor (solo se tocó la leyenda del mapa).
+- Catálogo: NUEVAS ocupacion_obs_n, renta_baseline.occ_fuente/occ_n; cambio de semántica de
+  ocupacion_target y renta_baseline.occ documentado con la orden (contrato del front —
+  string parseable o N/D — conservado).
+- Validación: py_compile OK · node --check OK · verify_reglas 20/20 OK 100% · harness Node:
+  D2/D3/D5 corren; card de renta con occ N/D LIMPIA; mixIngresoAnual→N/D correcto; con occ
+  numérica sigue calculando (conexión futura lista); tplMapa oculta primarios en 0, los
+  declara en >0 y el fallback sin análisis rinde limpio; scan global de tokens rotos LIMPIO.
+  La regla de ocupación se fijó DESPUÉS de verificar la capa real en vivo (el hallazgo de
+  que ESTATUS es estatus de anuncio, no ocupación, salió de esa verificación y evitó
+  publicar un % con título falso). PENDIENTE POST-PUSH: regenerar anclas en producción y
+  verificar n_primarios=0 con banda, mapa pintando marcadores/capas y N/D de ocupación.
+  Revisada dos veces.
