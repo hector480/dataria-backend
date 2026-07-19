@@ -96,6 +96,14 @@ absorcion_oferta_directa) · `abs_n_directos` · `abs_mediana_directos` (dato de
 `no_recomendable_motivo` · `aplicable` · `featured` · `seg_dim` · `mkt_segmento` · `nuevas_fam` ·
 `nuevas_fam_year` (flow) · `depth` (stock hogares) · `mix_num` · `perfiles` · `categoria` ·
 `nota_mercado` · `tca` · `competidores` · `mercado`.
+`veto_percepcion` (VETO DE PERCEPCIÓN · decisión 6 · 19 jul 2026: True cuando el $/m²
+publicado del producto queda DEBAJO del piso de percepción del predio — P10 robusto de lo
+observado = `percepcion_detalle.limite_inferior`. El veto apaga `recomendado` y `featured`
+DESPUÉS de todas las reglas existentes, NO toca `aplicable`/`status`/absorción, y
+`no_recomendable_motivo` ACUMULA "debajo del piso de percepción del predio (P10 $X/m²)"
+— combinado con " · " si ya había motivo de absorción. Sin P10 observado o sin `pm2_num`
+numérico NO hay veto: no se inventa. Solo productos de VENTA del modo activo; renta queda
+fuera porque su $/m² mensual no es comparable con la percepción de venta).
 Solo vertical: `variantes[]` (multi-programa: `{rec, m2, pm2, area_recamaras_max,
 min_m2_recamara, _base}`).
 Solo horizontal: `m2_construccion` · `m2_terreno` (+`m2_terreno_num`).
@@ -238,3 +246,76 @@ hotel (prefijo por uso).
 | zone_data.fecha_corte_venta / fecha_corte_renta | str/null | NUEVAS · máxima FECHA_DE_LEVANTAMIENTO observada por capa (RES-4); se muestra discreta en el encabezado de Resumen; sin dato → null y no se muestra (decisión 2) |
 | renta_baseline.units | int/null | CAMBIO (decisión 5): mediana OBSERVADA de unidades por proyecto de la zona (antes 120 fijo); null → slider deshabilitado |
 | renta_baseline.units_fuente | str/null | NUEVA · fuente declarada del arranque de unidades |
+
+## BACKFILL ZA (auditoría 19 jul 2026 · variables históricas de Zona de Análisis documentadas desde el código)
+| Variable (_vars / _zona_analisis) | Significado (fuente → regla) |
+|---|---|
+| pin, predio_m2, uso_comercial | Entrada del usuario (lat/lng, m² del predio, flag comercial) |
+| perfil_iso / perfil_label / isocronas_min / isocrona_primaria_min / isocrona_secundaria_min | Perfil de isócronas por tamaño (§10): minutos usados, primaria (azul) y secundaria (verde); geometrías por cadena Predik→Valhalla |
+| iso_fuente_usada / iso_nota | Fuente de isócrona vigente y nota (solo dato interno; front limpio por directiva) |
+| zona_poligono / barrera_mercado / metodo / cobertura_pct / motivo | Zona de influencia real (morado): cascada banda_percepcion→barrera_nse→mercado_del_pin→isocrona; % del anillo cubierto y explicación |
+| mercados_detectados / gap_separabilidad / varianza_explicada / cluster_names / mercados | Detección universal de mercados (clustering sobre señales ticket/pm2/pos/nse) |
+| perception.n_total/n_zona/media/sd/cv/valor_zona/sin_valor_percibido/nota_valor/ajuste_inventario/proyectos | Percepción de valor del mercado del pin: conteos, estadística, valor de zona (VVV manda sobre demografía) |
+| percepcion_detalle.pm2_mediana/pm2_mad/banda_nucleo/limite_inferior/limite_superior/extremos/n_comparables/outliers_n/nse_percepcion/mercado_meta/nota | ZA-6: bandas robustas (piso P10 · núcleo P25-P75 · techo P90, mediana/MAD, Tukey) + mercado meta derivado |
+| competidores_directos/primarios/secundarios + n_* + set_competidor / criterio_directos / rango_percepcion / nota_set | Sets por regla dictada (directo = banda±2·MAD + NSE ±1 + isócrona primaria; resto secundario sup/inf; primarios solo sin banda evaluable) |
+| universo_proyectos / n_universo / proyectos / kpis | Universo de oferta VVV del anillo mayor y KPIs robustos |
+| poblacion / hogares / ingreso_hogar / nse_dominante / tca / municipio / estado / pais / municipios_todos | Demografía del DI (AGEB): masa, IXH real del NSE dominante (dominante por masa × proximidad, percepción puede subirlo), TCA |
+| segmentos_demanda / productos / productos_renta / sweet_spot | Puentes a DIM/Producto/Renta (documentados en sus secciones) |
+| agebs_geo / nse_barrier | Geometrías AGEB del KMZ con NSE (capas y barrera espacial) |
+| fecha_corte_venta / fecha_corte_renta | (19 jul) máx FECHA_DE_LEVANTAMIENTO por capa — encabezado de Resumen |
+
+## BACKFILL RESUMEN + MAPA (auditoría 19 jul 2026)
+| Variable | Significado |
+|---|---|
+| oferta_stats.pm2_total/pm2_disponible/m2_*/precio_M_*/abs_* | RES-3: estadística ROBUSTA dual (mediana/núcleo P25-P75/MAD/n) del inventario TOTAL vs DISPONIBLE — disponible manda para precio vigente; total para histórico |
+| top_estrella.zona[] / por_segmento{} / criterio_estrella | RES-5: producto estrella (mayor % desplazado con velocity normalizada, evidencia ≥3 ventas) por zona y por segmento |
+| resumen_comercial | Texto ejecutivo del corredor generado de los datos (sin promedios) |
+| inventario_precio / inventario_m2 | Distribuciones de inventario por rango (gráficas Resumen/Inventario) |
+| kpis.avg_abs / avg_pm2 / avg_ticket / avgAbs / avgPm2 | LEGACY (promedios): ya NO se muestran en Resumen (la pantalla usa oferta_stats robustas); candidatos a triage del lote #8 — conservados como API por compatibilidad |
+| MAPA_CAPAS / buildCapaNse / buildCapaPv (front) | Capas del mapa maestro: polígonos AGEB por NSE (agebs_geo del KMZ) y puntos por percepción (P25/P75 de stats robustas del mercado del pin) — front solo pinta datos del payload |
+
+## BACKFILL INVENTARIO (auditoría 19 jul 2026)
+| Variable | Significado |
+|---|---|
+| _typologies{proyecto:[…]} | Tipologías por proyecto desde capa ft de VVV: tipo, area_priv/terr/total, rec, precio_ud, precio_m2, unid_total/disp/vend, abs, avance, cajones (CAJONES_ASIGNADOS de la capa) |
+| PROJECT_META_BY_ZONE / _project_meta | Metadatos por proyecto (desarrollador/inicio_venta/entrega: "próximamente" permitido hasta que el wrapper los exponga — INV-5/6) |
+| filtro_rango_usuario / producto_estrella_corredor (endpoint estrella_filtro) | INV-4: corredor a la medida con rangos del usuario; cálculo 100% backend (valida analisis_key) |
+| /api/zona/ficha_inventario | INV-3: fichas PDF para bancos (reportlab backend; validado 6 jul) |
+
+## BACKFILL DEMANDA (auditoría 19 jul 2026)
+| Variable | Significado |
+|---|---|
+| dim_data.segments[] | Buckets DIM: NSE, bucket de precio, val_min/max, mkt_total/venta/renta, nuevas_fam (Demanda anual base), demanda_total, evidencia_vendidas/disp, rent_min/max, ing_min/max, status, aplicable (rango de oferta observada) |
+| segmentos_dem1[] | Matriz DEM-1: perfil_id, cohorte (household lifecycle), NSE, banda_ingreso_tag, ixh_mediana, capacidad_pago_banda_M (PTI 30-35% · tasa 9.1% · 240m · eng 10%), hogares_stock, nuevas_fam_year, pool_activo (5%), programa (rec+cajones), m2_banda, pm2_derivado_banda, buckets_desglose (ledger 19 jul), oferta_perfil, demanda/insatisfecha_mensual, status_perfil, producto_sugerido, fuente_masas, confianza |
+| dem1_meta | metodo_masas, umbral, capacidad (PTI/tasa/plazo/enganche), gmm por NSE con motivo (salvaguarda), conservacion {nf_buckets=nf_perfiles}, producto_perfil (PROD-PERFIL), version_modelo |
+| di_detail | Detalle del DI para gráficas: tipologia_hogar/situacion_conyugal/poblacion_hogares/personas_hogar ({label,count,pct,parent}) — alimenta charts (canvas) |
+| percepcion_detalle.mercado_meta | NSE/ingresos/ticket ancla/perfiles/etapas del mercado meta (ZA-6) |
+
+## BACKFILL RENTA + COMERCIO (auditoría 19 jul 2026)
+| Variable | Qué es / fuente | Consumidor |
+|---|---|---|
+| `renta_segmentos[]` | `{seg, perfil, nse, ing, renta, rec, m2, hog, sweet}` · derive_renta_segmentos(segments, agebs); `m2`/`rec` se enlazan desde `productos_renta` por bucket cuando existen | tplRenta (tabla de segmentos; ★ = sweet) |
+| `renta_baseline.m2` / `.pm2` | Medianas OBSERVADAS de la oferta de renta de la zona (RES-2); null → slider del simulador deshabilitado con N/D (completa la familia occ/units ya catalogada) | Simulador de sensibilidad · Renta |
+| `recamaras[3]` | % de demanda por 1 / 2 / 3+ recámaras · derive_recamaras(agebs) (base censal) | KPI "Demanda 2 rec" + recamarasChart |
+| `comercio.ingreso_anual` | Texto abreviado (p.ej. "3.5B") de Σ "Ingresos totales 2026" de las AGEB | KPI Comercio |
+| `comercio.demanda{cat}` | Gasto anual MXN por categoría · Σ campos "Gasto …" de la base (C193-201) | demandaCatChart |
+| `comercio.oportunidad{cat}` | m² de GLA soportados = gasto × CAPTURA ÷ ventas_m2_anual[cat] | oportunidadChart + gla |
+| `comercio.captable{cat}` | m² captables por un desarrollo nuevo = oportunidad × CAPTABLE_PCT (15%) — verificado EXACTO en vivo | captableChart ("@ 15%" del front = constante backend, congruente) |
+| `comercio.product_mix[]` | `{giro, m2, pct, tenant, renta "$a-b", renta_m2, anchor}` · solo giros con captable ≥ GLA_MIN_VIABLE; renta derivada del gasto captable/m² (OCC_RENTA) ±12%; ancla = Supermercado; tenant del catálogo TENANTS_POR_NSE según NSE efectivo | Tabla "Producto comercial recomendado" |
+| `comercio.gla_target` | Σ m² de giros viables (= Σ product_mix.m2, verificado en vivo) | KPI "GLA objetivo" |
+| `comercio.renta_low` / `renta_high` | Renta mensual estimada del GLA (M MXN): Σ(m2×renta_m2)×0.85; high = ×1.35. `renta_high` NO se muestra (API-only → triage lote #8) | KPI "Renta estimada · low scenario" |
+| NSE efectivo comercio | max(NSE demográfico dominante, NSE de percepción de valor de la oferta) — congruente con "la percepción manda" | Selección de catálogo de tenants |
+| Constantes comercio | CAPTURA 0.25 · ventas_m2_anual{10 giros} · CAPTABLE_PCT 0.15 · OCC_RENTA 0.10 · GLA_MIN_VIABLE 100 · banda renta ±12% · factor 0.85 · high +35% · ancla=Supermercado · TENANTS_POR_NSE (marcas por nivel) | ⚠ EXISTEN en app.py y NO están ratificadas en §10 → hallazgo #11 en COLA_DECISIONES (pendientes de tu una-por-una) |
+
+## BACKFILL MEZCLAS + MONITOR (auditoría 19 jul 2026)
+| Variable | Qué es / fuente | Consumidor |
+|---|---|---|
+| `_captureRate` (front, escenario) | Tasa de captación VENTA del escenario · default 1.0 (100%), slider 10-100% visible | Los 5 modos de "Crea tu mezcla" |
+| `_captureRateRenta` (front, escenario) | Tasa de captación RENTA · default 0.5 (50%), slider visible | Modos de mezcla renta |
+| getDemandDrivenProducts(cr) | Pool de mezcla VENTA = `z.productos.filter(recomendado)` — el VETO de percepción reduce este pool automáticamente. EN VIVO (`__DATARIA_LIVE__`) `abs_base` = absorción DEL BACKEND (verificado exacto 6/6; el front no recalcula, el slider solo modula escenario) | Modos periodo/recomendación/unidades/perfil |
+| getDemandDrivenRentaProducts(cr) | Pool RENTA = `productos_renta` recomendados (3/3 vivo). `_occ` = ocupación observada o null; `_renta_anual_ud` = null cuando occ es N/D (verificado 3/3 — nada re-inventa el 90) | Modos de mezcla renta |
+| Supply-only en mezcla | SOLO disponible en modo manual (verificado: 0 en pool demand-driven) | Modo manual |
+| `_projectMix` / `_monitorSource` / `_monitorPeriod` | Mix editable del Monitor (arranca VACÍO — nada inventado), origen custom/proyecto/venta/renta, horizonte 24m default (rango visible 6-60) | Monitor |
+| API `evaluar_mix` {items·item, period, capture, typologies, segments} | AMENAZA COMPETITIVA 100% BACKEND (amenaza_competitiva): threat_ratio = ud competidoras / demanda del horizonte; net_demand; estrategia (expansión/acelerar/monitorear/aguantar/reposicionar); competidores directos; precio recomendado = MEDIANA $/m² de directos + veredicto (PRECIO_TOL_VEREDICTO). El front solo envía el mix (debounce 300ms) y pinta | Monitor secciones B/C |
+| Constantes Monitor | `_MON_TOL_TICKET/AREA/REC` = alias de `_PRECIO_TOL_*` (±15% ticket · ±30% área · ±1 rec — FUENTE ÚNICA, y los criterios se declaran en pantalla, congruente); escalera de amenaza 2.0/1.0/0.5; fallback área 60 m² sin dato del usuario | ⚠ NO ratificadas en §10 → hallazgo #13 |
+| Umbrales modo Recomendación | avgAbs/avgPm2 = PROMEDIOS de zona CALCULADOS EN FRONT (getZoneAverages / getRentaZoneAverages; rotulados "Promedio zona" en pantalla) | ⚠ hallazgo #12: promedio vs mediana (RES-2) + cálculo en front |

@@ -1594,3 +1594,52 @@ verify_all 8/8 + render 10/10 tras el blindaje.
   campos con lo que /api/zona/reverse detecta; sin dato → campo vacío (nunca residuo del pin
   anterior); edición manual sigue posible. Validación: node --check OK · verify_reglas 20/20.
   Pendiente post-push: probar 3 pines seguidos en producción. Revisada dos veces.
+
+## 2026-07-19 · AUDITORÍA · BLOQUE ZA CERRADO — [x]
+- Producción b6a2927: corrección domicilio verificada con 3 pines (3 direcciones distintas
+  del backend); decisiones 2/3/5 verificadas en payload vivo (fechas de corte reales, ledger
+  presente con conservación POR bucket EXACTA 8/8, units=160 observadas con fuente).
+- Backfill de catálogo ZA (~45 términos) + registro en AUDITORIA_SECCIONES. Sin defectos
+  nuevos. Revisada dos veces.
+
+## 2026-07-19 · AUDITORÍA · BLOQUE 2 (RESUMEN + MAPA) CERRADO — [x]
+- Ambas secciones conformes con payload vivo: Resumen usa mediana robusta del disponible
+  (RES-2/3 ✓, el avg_* legacy no se muestra → triage #8), fechas de corte visibles, estrella
+  y glosario correctos; Mapa con conteos/leyenda/capas correctos y sin tokens. Sin
+  correcciones. Catálogo respaldado. Revisada dos veces.
+
+## 2026-07-19 · AUDITORÍA · BLOQUE 3 (INVENTARIO) CERRADO — [x]
+- Conforme con payload vivo (196 tipologías/16 proyectos, campos completos, tokens cero,
+  próximamente solo el permitido); corredor INV-4 vivo validando; artefactos de sonda
+  declarados. Sin correcciones. Catálogo respaldado. Revisada dos veces.
+
+## 2026-07-19 · AUDITORÍA · BLOQUE 4 (DEMANDA) CERRADO — [x]
+- DIM y DEM-1 conformes con payload vivo (buckets con perfil, 23 perfiles con estatus,
+  conservación y ledger exactos, cero tokens); artefactos de sonda declarados (HTML-escape,
+  charts canvas). Sin correcciones. Catálogo respaldado. Revisada dos veces.
+
+## 2026-07-19 · AUDITORÍA · BLOQUE 5 (PRODUCTO + VETO decisión 6) CERRADO — [x]
+- Veto de percepción implementado en backend (assemble, post-reglas, piso = P10 =
+  percepcion_detalle.limite_inferior; motivo acumulativo; featured ⊆ recomendado; renta
+  fuera); front solo pinta la caja roja. Batería completa ✓ (py_compile, node --check,
+  verify_reglas 23/23 + payload pre/post-veto) y offline 6/6 con números reales
+  (61,690 vs 45,455). Double-read Producto conforme (miss=0, tokens=0, ★=1). Ancla
+  pre-veto: Contry con 2 recomendados bajo piso (18,400/33,333) → deben quedar vetados
+  tras el push. Hallazgos #9 supply-only-en-front y #10 DESIGN_TIERS editorial → COLA.
+  IMPLEMENTADA pendiente de push+verificación. Revisada dos veces.
+
+## 2026-07-19 · AUDITORÍA · BLOQUE 6 (RENTA + COMERCIO) CERRADO — [x]
+- Renta conforme (baseline con reglas finales: occ N/D deshabilitado por propiedad,
+  units mediana observada con fuente, pm2 null → N/D; 7 segmentos ★1; tokens 0). Comercio
+  conforme (captable=15% exacto, GLA=Σmix, 7/7 giros/rentas en pantalla, ancla ⚓;
+  renta_high API-only → triage #8). Artefactos de escape (&lt;/&amp;) declarados.
+  Hallazgo #11 (constantes comercio sin ratificar en §10) → COLA. Backfill de catálogo
+  Renta+Comercio hecho. Sin cambios de código. Revisada dos veces.
+
+## 2026-07-19 · AUDITORÍA · BLOQUE 7 (MEZCLAS + MONITOR) CERRADO · AUDITORÍA 8/8 COMPLETA — [x]
+- Mezcla venta: pool=recomendados exacto (6/6, backend manda en absorciones 6/6, supply
+  solo manual). Mezcla renta: pool 3/3, occ N/D fluye (null 3/3). Monitor: mix vacío al
+  abrir, criterios en pantalla = constantes backend (fuente única), amenaza+precio 100%
+  backend (evaluar_mix, mediana de directos). Hallazgos #12 (promedios del modo
+  Recomendación en front) y #13 (constantes Monitor sin §10) → COLA. Backfill de catálogo
+  hecho. Sin cambios de código. REPORTE FINAL entregado a Héctor. Revisada dos veces.

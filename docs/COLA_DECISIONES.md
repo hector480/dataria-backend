@@ -25,11 +25,52 @@
 - **G9 Metaproducto** (amenidades/acabados por perfil; backend aún no entrega amenidades procesadas — pendiente #4).
 - **G10 Usos nuevos** (lotes, industrial, logística, CC, hotel) — uno por uno, cada uno con su pipeline.
 
+## Bloque 3.5 · Hallazgos de la auditoría de Producto (bloque 5 · 19 jul)
+- **#9 Supply-only calculado en el front** — getSupplyOnlySuggestions deriva promedios
+  ponderados sobre TYPOLOGIES en el navegador. El PROMEDIO aquí es deliberado (es el foil
+  del "método tradicional", rotulado "Promedio observado · NO recomendados sin validación
+  demand-driven"), no viola RES-2 (que rige TUS estadísticas). Lo que choca con tu regla es
+  DÓNDE se calcula: debería producirlo el backend y el front solo pintarlo. Refactor sin
+  cambio de comportamiento — ¿lo hago?
+- **#10 Fichas de diseño (DESIGN_TIERS) con contenido editorial fijo en el front** — el
+  detalle de producto muestra perfiles de edad, ingresos ($200-300k/mes), acabados y
+  amenidades ESCRITOS en el código del front, no derivados de la base, y se presentan como
+  si fueran de la zona. Opciones: (a) derivarlos de la base/backend (¿qué fuente los
+  respaldaría?), (b) rotularlos "plantilla editorial Dataria", (c) quitarlos. Tu llamada.
+
+## Bloque 3.6 · Hallazgo de la auditoría de Comercio (bloque 6 · 19 jul)
+- **#11 Constantes del método comercio sin ratificar en §10** — el gasto por categoría SÍ
+  viene de la base (campos "Gasto …" C193-201), pero la derivación usa parámetros que nunca
+  pasaron por tu una-por-una: CAPTURA 25% (gasto de la zona que captura el comercio local),
+  tabla de ventas por m²/año por giro (10 valores típicos tecleados: Supermercado $95k …
+  Mejoras del hogar $35k), demanda captable 15% (la etiqueta del front coincide con el
+  backend), renta sostenible = 10% de ventas ±12%, GLA mínimo viable 100 m², factor 0.85
+  del escenario low y +35% del high, ancla fija = Supermercado, y el catálogo de tenants
+  sugeridos por NSE (marcas: City Market/Liverpool… · HEB/Suburbia… · Bodega
+  Aurrerá/Coppel…). Nada se tocó — ¿los ratificas tal cual (van a §10), los ajustas, o
+  quieres fuentes de industria documentadas para la tabla de ventas/m²?
+
+## Bloque 3.7 · Hallazgos de la auditoría de Mezclas + Monitor (bloque 7 · 19 jul)
+- **#12 Modo Recomendación filtra por PROMEDIOS calculados en el front** — los umbrales
+  "absorción ≥ promedio de la zona Y $/m² ≥ promedio" (venta y renta) se calculan en el
+  navegador (vivos: 0.57 un/mes · $83,335). En pantalla se rotulan "Promedio zona"
+  (honesto), pero tu RES-2 pide MEDIANAS para estadísticas de zona y tu regla pide el
+  cálculo en backend. ¿Cambio los umbrales a MEDIANA calculada en backend (recomendado,
+  consistente con RES-2), o ratificas el promedio aquí a propósito (es un umbral de
+  selección, no un dato mostrado) y solo lo muevo a backend?
+- **#13 Constantes del Monitor sin ratificar en §10** — tolerancias de competidor directo
+  ±15% ticket · ±30% área · ±1 recámara (FUENTE ÚNICA compartida con el precio
+  recomendado, y están declaradas en pantalla — arquitectura correcta), escalera de
+  estrategia por threat ratio (>2.0 reposicionar · >1.0 aguantar · >0.5 monitorear · ≤0.5
+  acelerar), área fallback 60 m² cuando no capturas m², y PRECIO_TOL_VEREDICTO (±5% para
+  caro/en línea/barato). ¿Las ratificas tal cual a §10 o ajustas alguna?
+
 ## Bloque 4 · Lo aparcado por tu decisión (para el final)
 MCP + app móvil (diseño listo en DISENO_MCP.md) · modelo de cobro (benchmark entregado) ·
 F-E cuentas/bitácora/medidor · seguridad completa #1 (gate de cualquier lanzamiento público).
 
-## Ahora mismo en tu GitHub Desktop (commit cuando gustes)
-static/dashboard_zona_analisis.html (guardas simulador — cierra el $null vivo) ·
-docs/LISTA_REVISION.md · docs/DISENO_MCP.md · docs/AUDITORIA_SECCIONES.md ·
-docs/COLA_DECISIONES.md · verificacion/verify_linaje.py
+## Ahora mismo en tu GitHub Desktop (commit cuando gustes · 7 archivos)
+app.py (VETO de percepción · decisión 6) · static/dashboard_zona_analisis.html (caja roja
+del veto) · verificacion/verify_reglas.py (23 invariantes + veto en payload) ·
+docs/AUDITORIA_SECCIONES.md · docs/CATALOGO_VARIABLES.md · docs/COLA_DECISIONES.md ·
+docs/LISTA_REVISION.md

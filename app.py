@@ -4913,6 +4913,28 @@ def assemble_zone_payload(req, profile, isocronas, resumen, ft, pagos, resumen_r
     # ZA-6 · percepción detallada (se usa en _zona_analisis Y como ancla de PROD-PERFIL)
     pd_detalle = derive_percepcion_detalle(perception, segments, demografia, productos)
 
+    # VETO DE PERCEPCIÓN (Héctor · decisión 6 · 19 jul 2026): "la percepción veta".
+    # Un producto cuyo $/m² publicado queda DEBAJO del piso de percepción del predio
+    # (P10 robusto de lo observado en la zona = percepcion_detalle.limite_inferior)
+    # NO puede recomendarse. Se aplica DESPUÉS de todas las reglas existentes:
+    # no toca aplicable/status/absorción y el producto SIGUE MOSTRÁNDOSE en el front.
+    # Solo veta con dato real en ambos lados (pm2_num y P10 observado); sin dato → sin veto.
+    # Aplica a los productos de VENTA del modo activo; renta queda fuera (su $/m² mensual
+    # no es comparable con la percepción de venta). featured se limpia para conservar el
+    # invariante existente featured ⊆ recomendado (una estrella no puede estar vetada).
+    _p10_predio = pd_detalle.get("limite_inferior")
+    if isinstance(_p10_predio, (int, float)) and _p10_predio > 0:
+        for _p in productos:
+            _pm2v = _p.get("pm2_num")
+            if isinstance(_pm2v, (int, float)) and 0 < _pm2v < _p10_predio:
+                _veto_txt = (f"debajo del piso de percepción del predio "
+                             f"(P10 ${_p10_predio:,.0f}/m²)")
+                _p["recomendado"] = False
+                _p["featured"] = False
+                _p["veto_percepcion"] = True
+                _p["no_recomendable_motivo"] = (f"{_p['no_recomendable_motivo']} · {_veto_txt}"
+                                                if _p.get("no_recomendable_motivo") else _veto_txt)
+
     # DEM-1 · matriz de perfiles (cohorte × NSE × ingreso) con conservación por bucket
     dem1 = derive_segmentos_dem1(agebs, segments, demografia.get("personas_hogar"))
     # PROD-PERFIL · resta oferta−demanda por perfil + producto sugerido anclado a percepción
