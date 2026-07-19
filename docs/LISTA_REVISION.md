@@ -1564,3 +1564,24 @@ verify_all 8/8 + render 10/10 tras el blindaje.
 - VALIDEZ EXTERNA: primer caso de doble intérprete PASADO (pin 25.65816,-100.44901 ·
   3,000 m² · vertical): convergencia alta lectura independiente ↔ herramienta; punto de
   regla nuevo a decisión (B-en-predio-A) anotado en la cola. Revisada dos veces.
+
+## 2026-07-19 · SESIÓN UNA-POR-UNA · 6 DECISIONES DICTADAS + LOTE 1-5 IMPLEMENTADO — [x]
+- Post-push 126c24b verificado: Renta LIMPIA en producción (guardas vivas, boot sin tokens).
+- DECISIONES: (1) ampliación de muestra: SIN explicación en pantalla; regla ratificada como
+  práctica estándar de comparables y ENUNCIADA por Héctor (adenda §3 METODOLOGIA);
+  (2) fecha de corte DISCRETA en encabezado de Resumen (leída del dato: fecha_corte_venta/
+  renta = máx FECHA_DE_LEVANTAMIENTO por capa, sin avisos); (3) ledger DEM-1 PUBLICADO
+  (buckets_desglose por perfil — auditoría de conservación POR bucket habilitada);
+  (4) bandas $/m² ETIQUETADAS las tres (botones de capa PV mapa+ZA "bajo <P25 · alto >P75";
+  criterio de directos visible en ZA con "banda = mediana ± 2·MAD"; nota ZA-6 con "piso P10
+  · núcleo P25–P75 · techo P90"); (5) units del simulador = MEDIANA OBSERVADA de unidades/
+  proyecto de la zona con fuente declarada (muere el 120; null → slider deshabilitado);
+  + consistencia: fila Primarios de ZA se oculta en 0 (regla del 18 jul).
+- DECISIÓN 6 (VETO DE PERCEPCIÓN · regla nueva de Héctor): productos con $/m² debajo del
+  piso de percepción (P10) del predio NO se recomiendan ahí — se muestran como demanda
+  existente con motivo. REGISTRADA; implementación = primer punto de la próxima sesión
+  (cambio de lógica de recomendación: se hace con calma y batería completa).
+- Validación del lote 1-5: py_compile OK · node --check OK · verify_reglas 20/20. Catálogo
+  actualizado (buckets_desglose, fecha_corte_*, units/units_fuente). PENDIENTE POST-PUSH:
+  regenerar un ancla y verificar fecha de corte visible, ledger presente y units observadas.
+  Revisada dos veces.

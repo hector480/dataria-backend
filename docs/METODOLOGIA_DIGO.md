@@ -208,3 +208,12 @@ uno por uno y quedaron así. Cambiarlos requiere nueva confirmación.
 | Capa mapa $/m² | bajo < **P25** · medio P25–P75 · alto > **P75** de lo observado en la zona | RES-2 (nunca promedios) |
 | Corona captable | anillo principal **+10 min** (tope 30) · gravedad exponente **2.0** | Ortúzar & Willumsen / modelo gravitacional estándar |
 | Ocupación de renta | **N/D SIEMPRE (regla final)**: la capa vv_renta no trae ocupación física — su ESTATUS es estado del ANUNCIO ('Comparable' activo · 'No disponible' retirado/rentado · vacío = el equipo de campo no obtuvo el dato; verificado ZMM 336/55/22). Todo lo dependiente muestra N/D; mueren el 92% y el 90 hardcodeados; el slider de escenario queda deshabilitado (el usuario puede fijar ocupación solo en el slider de SENSIBILIDAD, que es escenario explícito). Candidato: pedir ocupación real al equipo de base | N/D = el equipo de campo no obtuvo el dato (semántica de la base confirmada por Héctor) |
+
+### Adenda §3 · Regla de soporte de muestra (enunciación de Héctor · 19 jul 2026)
+"Deben utilizarse los valores de percepción de valor, los ingresos de la población y la
+capacidad de pago EN LA ISÓCRONA, y utilizar los proyectos EN LA ZONA como referente; en la
+zona secundaria suelen existir esas complementarias." — Es la práctica estándar de
+comparables (ampliar el área de búsqueda hasta tener soporte, como el valuador amplía el
+radio de comps). Implementación: percepción sobre el anillo primario; con muestra
+insuficiente (<15, §10) las complementarias de la secundaria entran al cálculo. Por decisión
+de Héctor NO se muestra explicación en pantalla (el dato interno sí lo registra).

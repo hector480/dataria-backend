@@ -2253,7 +2253,9 @@ def derive_segmentos_dem1(agebs: List[Dict], segments: List[Dict],
         else:
             p["m2_banda"] = None
             p["pm2_derivado_banda"] = None
-        p.pop("buckets", None)
+        # LEDGER (Héctor · 19 jul 2026): el desglose {bucket: familias recibidas} se
+        # PUBLICA para auditar la conservación de masa POR bucket desde el payload.
+        p["buckets_desglose"] = p.pop("buckets", {})
     perfiles.sort(key=lambda p: -p["hogares_stock"])
     nf_perfiles = round(sum(p["nuevas_fam_year"] for p in perfiles), 1)
     meta["conservacion"] = {"nf_buckets": round(nf_buckets, 1), "nf_perfiles": nf_perfiles,
@@ -4250,7 +4252,8 @@ def derive_percepcion_detalle(perception, segments, demografia, productos) -> Di
             det["nota"] = (f"El valor percibido de la zona vive entre "
                            f"${det['limite_inferior']:,.0f} y ${det['limite_superior']:,.0f}/m² "
                            f"(núcleo ${det['banda_nucleo'][0]:,.0f}–${det['banda_nucleo'][1]:,.0f}). "
-                           f"{det['outliers_n']} proyecto(s) fuera de norma no definen la zona.")
+                           f"{det['outliers_n']} proyecto(s) fuera de norma no definen la zona. "
+                           f"Bandas robustas: piso P10 · núcleo P25–P75 · techo P90.")
         except Exception:
             det["nota"] = None
     else:
@@ -4848,6 +4851,26 @@ def _zone_label(producto_modo: str, kpis: Dict) -> Optional[str]:
     return f"{label_modo} · {n_proy} proyectos en comercialización · {uds_txt}"
 
 
+def _fecha_corte_max(rows, key="FECHA_DE_LEVANTAMIENTO"):
+    """Fecha de corte del dato = máxima fecha de levantamiento observada (RES-4).
+    Acepta epoch ms (resumen) o ISO (ft). Sin dato → None (el front no muestra nada)."""
+    vs = []
+    for r in (rows or []):
+        v = (r.get("attributes") or {}).get(key)
+        if v is None:
+            continue
+        try:
+            if isinstance(v, (int, float)) and v > 1e11:
+                vs.append(_dt.datetime.utcfromtimestamp(v / 1000).strftime("%Y-%m-%d"))
+            else:
+                s = str(v)[:10]
+                if len(s) == 10 and s[4] == "-":
+                    vs.append(s)
+        except Exception:
+            pass
+    return max(vs) if vs else None
+
+
 def assemble_zone_payload(req, profile, isocronas, resumen, ft, pagos, resumen_renta,
                           demografia, nse_dim, segments, productos, productos_renta,
                           comercio, perception, agebs_count,
@@ -4939,9 +4962,16 @@ def assemble_zone_payload(req, profile, isocronas, resumen, ft, pagos, resumen_r
     # en la capa → None y el slider del front se muestra deshabilitado con N/D (nunca el
     # 90 inventado que arrancaba el escenario).
     _rb_occ, _rb_occ_n = _ocupacion_renta_obs(ft_renta)
+    # units del simulador = MEDIANA OBSERVADA de unidades por proyecto de la zona (venta)
+    # (Héctor · 19 jul 2026: muere el 120 fijo); sin dato → None (slider deshabilitado).
+    _units_obs = [u for u in (_num((r.get("attributes") or {}).get("UNIDADES_TOTALES"))
+                              for r in (resumen or [])) if u and u > 0]
+    _rb_units = int(statistics.median(_units_obs)) if _units_obs else None
     renta_baseline = {
         "m2": rb_m2, "pm2": rb_pm2,
-        "units": 120 if rb_m2 else None,   # supuesto de proyecto típico para el simulador
+        "units": (_rb_units if rb_m2 else None),
+        "units_fuente": ("mediana observada de unidades/proyecto de la zona"
+                         if (_rb_units and rb_m2) else None),
         "occ": (_rb_occ if rb_m2 else None),
         "occ_fuente": ("observada · ESTATUS capa renta" if _rb_occ is not None else None),
         "occ_n": (_rb_occ_n or None),
@@ -4991,6 +5021,10 @@ def assemble_zone_payload(req, profile, isocronas, resumen, ft, pagos, resumen_r
         "renta_segmentos": renta_segmentos,
         "demanda_segmentos": demanda_segmentos,
         "renta_baseline": renta_baseline,
+        # FECHA DE CORTE (Héctor · 19 jul 2026 · RES-4): máxima FECHA_DE_LEVANTAMIENTO
+        # observada en las capas; discreta en el tablero, leída del dato real.
+        "fecha_corte_venta": _fecha_corte_max(resumen),
+        "fecha_corte_renta": _fecha_corte_max(ft_renta),
         "sensibilidad_baseline": _build_sensibilidad_baseline(productos, segments),
         "comercio": comercio,
         "ingreso_anual": comercio.get("ingreso_anual"),

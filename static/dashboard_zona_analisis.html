@@ -1712,7 +1712,7 @@ function tplResumen(z) {
     <div class="page-header">
       <div class="page-label">${z.label}</div>
       <div class="page-title">${z.name}</div>
-      <div class="page-sub">${z.subtitle} · ${k.proyectos} proyectos en comercialización</div>
+      <div class="page-sub">${z.subtitle} · ${k.proyectos} proyectos en comercialización${z.fecha_corte_venta?' · Oferta al '+z.fecha_corte_venta:''}${z.fecha_corte_renta?' · Renta al '+z.fecha_corte_renta:''}</div>
     </div>
     <div class="kpi-row">
       <div class="kpi" style="--kpi-color:var(--blue)"><div class="kpi-label">Proyectos activos</div><div class="kpi-val">${k.proyectos}</div><div class="kpi-sub">${z.name} · proyectos comparables</div></div>
@@ -1830,7 +1830,7 @@ function tplMapa(z) {
     <div class="map-filters" style="margin-top:6px;">
       <span style="font-size:11px;color:#8A90A6;align-self:center;">Capas:</span>
       <button class="mf-btn" onclick="mapaToggleCapa('nse',this)">◧ NSE por AGEB</button>
-      <button class="mf-btn" onclick="mapaToggleCapa('pv',this)">◉ Percepción de valor $/m²</button>
+      <button class="mf-btn" onclick="mapaToggleCapa('pv',this)">◉ Percepción de valor $/m² · bajo &lt;P25 · alto &gt;P75 de lo observado</button>
     </div>
     <div id="proyMap" style="height:72vh;min-height:520px;"></div>
     <div id="mapStatus" style="display:none;position:absolute;top:12px;left:12px;background:rgba(245,158,11,.15);border:1px solid rgba(245,158,11,.35);border-radius:8px;padding:8px 12px;font-size:12px;color:#F59E0B;z-index:1000;max-width:280px;">⚠ Capa base no disponible · Funcionará al publicar online</div>
@@ -6524,7 +6524,7 @@ function tplZonaAnalisis(z){
         <div class="map-filters" id="za-capas" style="display:none;margin-top:8px;">
           <span style="font-size:11px;color:#8A90A6;align-self:center;">Capas:</span>
           <button class="mf-btn" onclick="zaToggleCapa('nse',this)">◧ NSE por AGEB</button>
-          <button class="mf-btn" onclick="zaToggleCapa('pv',this)">◉ Percepción de valor $/m²</button>
+          <button class="mf-btn" onclick="zaToggleCapa('pv',this)">◉ Percepción de valor $/m² · bajo &lt;P25 · alto &gt;P75 de lo observado</button>
           <!-- DIRECTIVA (8 jul 2026): sin opciones de fuente para el usuario — la fuente y
                su comparación/validación son procesos del BACKEND (invariancia demostrada) -->
         </div>
@@ -6871,9 +6871,10 @@ function zaRenderResults(perfil, proyectos, ajuste){
       return `<div class="za-res-card">
       <div class="za-res-h">Sets de competidores <span style="font-weight:400;font-size:10px;color:#8A90A6;">· clic en cada categoría para desplegar</span></div>
       <div class="za-res-sub">Directos = oferta primaria a comparar (mercado del predio). Primarios y secundarios = universo competitivo y demanda (zona 8 + ${ZA_STATE.perfil_label||''}).</div>
+      ${c.criterio_directos?`<div style="font-size:11px;color:var(--t3);margin:4px 0 6px;">Criterio de directos: ${c.criterio_directos} (banda = mediana ± 2·MAD)</div>`:''}
       <div class="za-kv">
         ${fila('directos','#8B5CF6','Directos (morado)', c.n_directos, c.directos)}
-        ${fila('primarios','#0540F2','Primarios (azul · 8 min)', c.n_primarios, c.primarios)}
+        ${c.n_primarios>0?fila('primarios','#0540F2','Primarios (azul · 8 min)', c.n_primarios, c.primarios):''}
         ${fila('sec-sup','#0E7C5B','Secundarios · rango SUPERIOR de valor percibido (no comparables: mejor percepción)', c.n_sec_superior||0, (c.secundarios||[]).filter(x=>x.rango_percepcion==='superior'))}
         ${fila('sec-inf','#7BC9A9','Secundarios · rango INFERIOR de valor percibido (no distraen: menor percepción)', c.n_sec_inferior||0, (c.secundarios||[]).filter(x=>x.rango_percepcion==='inferior'))}
         ${fila('secundarios','#00B564','Secundarios (verde)', c.n_secundarios, c.secundarios)}

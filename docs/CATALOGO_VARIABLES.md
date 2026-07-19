@@ -230,3 +230,11 @@ hotel (prefijo por uso).
 | renta_baseline.occ | int/null | CAMBIO (misma orden): antes 90 fijo; REGLA FINAL = null (sin ocupación en la base) → el slider del simulador se muestra deshabilitado con N/D. Se llenará cuando exista el dato real |
 | renta_baseline.occ_fuente / occ_n | str/int | NUEVAS · fuente declarada ("observada · ESTATUS capa renta") y n de la muestra |
 | competidores.directos/secundarios[i].nota_set | str | (ya existía 8 jul) ahora también en ex-primarios degradados: "distinta percepción de valor/NSE (cliente compartido)" — regla dictada tal cual (18 jul) |
+
+## Decisiones una-por-una del 19 jul 2026 (órdenes de Héctor)
+| Variable | Tipo | Significado |
+|---|---|---|
+| segmentos_dem1[i].buckets_desglose | dict | NUEVA · ledger {bucket: nuevas familias recibidas} del reparto DEM-1 — habilita auditar conservación de masa POR bucket (decisión 3) |
+| zone_data.fecha_corte_venta / fecha_corte_renta | str/null | NUEVAS · máxima FECHA_DE_LEVANTAMIENTO observada por capa (RES-4); se muestra discreta en el encabezado de Resumen; sin dato → null y no se muestra (decisión 2) |
+| renta_baseline.units | int/null | CAMBIO (decisión 5): mediana OBSERVADA de unidades por proyecto de la zona (antes 120 fijo); null → slider deshabilitado |
+| renta_baseline.units_fuente | str/null | NUEVA · fuente declarada del arranque de unidades |
