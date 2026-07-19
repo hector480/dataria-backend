@@ -1548,3 +1548,19 @@ verify_all 8/8 + render 10/10 tras el blindaje.
   directos sin guarda (chequeo estático) · tplRenta NUEVA inyectada en la página real de
   producción con baseline todo-null → LIMPIA (0 tokens rotos, sliders disabled, labels N/D).
   Los 3 archivos del harness previo no cambiaron. Revisada dos veces.
+
+## 2026-07-19 · AUDITORÍA COMPLETA · FASE AUTÓNOMA ARRANCADA (orden de Héctor: "todo; primero lo autónomo") — [x] FASE 1
+- Método formalizado (6 piezas V&V) y registro vivo en docs/AUDITORIA_SECCIONES.md; cola de
+  decisiones para Héctor en docs/COLA_DECISIONES.md (2 bloques nuevos + gaps G1-G10 con qué
+  necesita cada uno).
+- LINAJE: verificacion/verify_linaje.py NUEVO (cruce producido↔catalogado↔consumido,
+  heurístico declarado). Censo: 608 producidas · 489 consumidas · 59 catalogadas →
+  HALLAZGO MAYOR: ~295 variables vivas sin catálogo (la regla de gobierno nunca fue
+  retroactiva); ~270 sin consumidor front a triar por sección. Plan: backfill por sección.
+- DOBLE LECTURA de las 11 secciones con payload real del pin de validación de Héctor sobre
+  el front VIVO (df61d1f): 10 limpias + spot-checks numéricos payload↔pantalla 9/9 ✓;
+  page-renta reproduce el `$null` del simulador — ES el defecto ya corregido el 18 jul que
+  espera el commit de Héctor (cierre esperado con su push).
+- VALIDEZ EXTERNA: primer caso de doble intérprete PASADO (pin 25.65816,-100.44901 ·
+  3,000 m² · vertical): convergencia alta lectura independiente ↔ herramienta; punto de
+  regla nuevo a decisión (B-en-predio-A) anotado en la cola. Revisada dos veces.
