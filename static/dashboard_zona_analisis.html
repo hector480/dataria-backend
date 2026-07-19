@@ -6613,11 +6613,15 @@ async function zaAutoDomicilio(lat, lng){
     const j = await r.json();
     if(_zaRevInflight !== token) return;   // el pin ya se movió: descartar respuesta vieja
     if(!j || j.ok === false || !j.fuente) return;
-    const fill = (id, v)=>{ const el = document.getElementById(id); if(el && !el.value.trim() && v) el.value = v; };
+    // El domicilio DESCRIBE AL PIN (Héctor · 19 jul 2026): cada pin nuevo REEMPLAZA los
+    // campos con lo que el backend detecta (dato real); sin dato → campo VACÍO — nunca se
+    // queda la calle del pin anterior (mostrarla en otra ubicación era un dato falso).
+    // El usuario puede editar a mano después; al mover el pin, el backend vuelve a mandar.
+    const fill = (id, v)=>{ const el = document.getElementById(id); if(el) el.value = (v || ''); };
     fill('za-estado', j.estado);
     fill('za-ciudad', j.municipio);
     fill('za-colonia', j.colonia);
-    if(j.direccion){ fill('za-calle', (j.direccion.split(',')[0]||'').trim()); }
+    fill('za-calle', j.direccion ? (j.direccion.split(',')[0]||'').trim() : '');
     zaSetStatus(`Domicilio detectado (${j.fuente}): ${[j.colonia, j.municipio, j.estado].filter(Boolean).join(', ') || j.direccion || ''}`, 'ok');
   }catch(e){ /* silencioso: el usuario puede capturar a mano */ }
 }

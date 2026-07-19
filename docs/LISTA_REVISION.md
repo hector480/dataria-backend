@@ -1585,3 +1585,12 @@ verify_all 8/8 + render 10/10 tras el blindaje.
   actualizado (buckets_desglose, fecha_corte_*, units/units_fuente). PENDIENTE POST-PUSH:
   regenerar un ancla y verificar fecha de corte visible, ledger presente y units observadas.
   Revisada dos veces.
+
+## 2026-07-19 · AUDITORÍA ZA · CORRECCIÓN 1 (reporte de Héctor): domicilio que no se actualizaba — [x]
+- CAUSA RAÍZ: el autollenado del reverse (ZA-2) solo escribía campos VACÍOS → el primer pin
+  llenaba la calle y los pines 2°/3°/4° nunca la actualizaban (calle del pin 1 mostrada en
+  otras ubicaciones = dato falso, aunque el origen fuera real). FIX conforme a la regla
+  dictada hoy ("backend manda; front solo consulta y muestra"): cada pin REEMPLAZA los 4
+  campos con lo que /api/zona/reverse detecta; sin dato → campo vacío (nunca residuo del pin
+  anterior); edición manual sigue posible. Validación: node --check OK · verify_reglas 20/20.
+  Pendiente post-push: probar 3 pines seguidos en producción. Revisada dos veces.
