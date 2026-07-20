@@ -69,8 +69,7 @@
 MCP + app móvil (diseño listo en DISENO_MCP.md) · modelo de cobro (benchmark entregado) ·
 F-E cuentas/bitácora/medidor · seguridad completa #1 (gate de cualquier lanzamiento público).
 
-## Ahora mismo en tu GitHub Desktop (commit cuando gustes · 7 archivos)
-app.py (VETO de percepción · decisión 6) · static/dashboard_zona_analisis.html (caja roja
-del veto) · verificacion/verify_reglas.py (23 invariantes + veto en payload) ·
-docs/AUDITORIA_SECCIONES.md · docs/CATALOGO_VARIABLES.md · docs/COLA_DECISIONES.md ·
-docs/LISTA_REVISION.md
+## Ahora mismo en tu GitHub Desktop (commit cuando gustes · solo docs)
+docs/AUDITORIA_SECCIONES.md · docs/LISTA_REVISION.md · docs/COLA_DECISIONES.md (registro
+de la verificación post-push del veto — el código ya está desplegado y verificado).
+Siguiente en la mesa: decisiones #9-#13 de esta cola, una por una cuando gustes.

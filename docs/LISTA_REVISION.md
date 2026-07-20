@@ -1643,3 +1643,8 @@ verify_all 8/8 + render 10/10 tras el blindaje.
   backend (evaluar_mix, mediana de directos). Hallazgos #12 (promedios del modo
   Recomendación en front) y #13 (constantes Monitor sin §10) → COLA. Backfill de catálogo
   hecho. Sin cambios de código. REPORTE FINAL entregado a Héctor. Revisada dos veces.
+
+## 2026-07-19 · VETO EN PRODUCCIÓN VERIFICADO (post-push) — [x]
+- Anclas cumplidas al 100%: ejercicio piso $61,690 con 45,455 vetado (+18,400/33,333);
+  Contry piso $71,223 con n_rec 6→4 y vetados 18,400/33,333. Cajas rojas visibles con el
+  front nuevo; invariantes de payload OK en ambos. Revisada dos veces.

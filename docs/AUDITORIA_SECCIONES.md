@@ -197,3 +197,14 @@ Mezclas+Monitor — todas auditadas contra pantalla viva y payload real. Correcc
 código de la auditoría: domicilio del pin (siempre-reemplaza), ciclo de vida del mapa,
 VETO de percepción (decisión 6, pendiente de push+verificación). Hallazgos en cola:
 #7-#13 + G1-G10. Batería final: verify_reglas 23/23 estáticos ✓.
+
+## VERIFICACIÓN POST-PUSH DEL VETO — EN PRODUCCIÓN ✓ (19 jul 2026, tras push de Héctor)
+- Deploy de Render confirmado (front nuevo servido). Dos análisis FRESCOS vía producción:
+- PIN EJERCICIO (25.65816,-100.44901 · 3,000 m² vertical): piso vivo 61,689.76 → motivo
+  "P10 $61,690/m²" (ancla exacta). VETADOS 3: 1 Rec@18,400 · 1 Rec@33,333 · y EL CASO DEL
+  EJERCICIO "2 Rec · $2.5M-$3.5M"@45,455 ✓. n_rec=4, 3 cajas rojas renderizadas con el
+  front nuevo, featured sin vetar, invariantes de payload OK.
+- CONTRY (25.66412,-100.28454 · 1,200 m²): piso vivo 71,222.89 → "P10 $71,223/m²" (ancla
+  exacta). VETADOS exactamente los 2 predichos: @18,400 y @33,333 ✓. n_rec 6→4 (ancla
+  exacta), 2 cajas rojas, invariantes OK.
+- Estado de la decisión 6: IMPLEMENTADA → VERIFICADA EN PRODUCCIÓN. Revisada dos veces.
